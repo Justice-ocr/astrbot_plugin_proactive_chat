@@ -543,6 +543,7 @@ function detectSessionType(sessionId) {
 }
 
 // 会话差异配置页并不暴露完整全局 Schema，而是按会话类型抽取可编辑字段子集。
+// 因此像 web_admin、notification_settings 这类纯全局配置块不会出现在会话差异编辑视图中。
 function getSessionSchemaEntries(schema, sessionType) {
     const rootKey = sessionType === 'group' ? 'group_settings' : 'friend_settings';
     const rootItems = schema?.[rootKey]?.items || {};

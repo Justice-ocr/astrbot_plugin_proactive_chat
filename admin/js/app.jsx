@@ -19,17 +19,20 @@ function App() {
         dispatch({ type: 'SET_LOADING', payload: true });
         dispatch({ type: 'SET_ERROR', payload: '' });
         try {
-            // 并发请求状态、会话、配置与任务，减少首屏等待时间。
-            const [statusRes, sessionsRes, configRes, jobsRes] = await Promise.all([
+            // 并发请求状态、会话、配置、任务与通知，减少首屏等待时间。
+            const [statusRes, sessionsRes, configRes, jobsRes, notificationsRes] = await Promise.all([
                 api.getStatus(),
                 api.listSessions(),
                 api.getConfig(),
                 api.listJobs(),
+                api.getNotifications(),
             ]);
             dispatch({ type: 'SET_STATUS', payload: statusRes });
             dispatch({ type: 'SET_SESSIONS', payload: sessionsRes.sessions || [] });
             dispatch({ type: 'SET_CONFIG', payload: configRes || null });
             dispatch({ type: 'SET_JOBS', payload: jobsRes.jobs || [] });
+            dispatch({ type: 'SET_NOTIFICATIONS', payload: notificationsRes.items || [] });
+            dispatch({ type: 'SET_NOTIFICATIONS_META', payload: notificationsRes.meta || null });
         } catch (e) {
             // 将后端错误或网络错误统一透传到顶部错误卡片中展示。
             dispatch({ type: 'SET_ERROR', payload: e.message || '加载失败' });
@@ -68,6 +71,10 @@ function App() {
                 // WebSocket 推送只负责把增量/全量快照写回全局状态，不在这里做业务判断。
                 if (data.status) dispatch({ type: 'SET_STATUS', payload: data.status });
                 if (Array.isArray(data.jobs)) dispatch({ type: 'SET_JOBS', payload: data.jobs });
+                if (data.notifications) {
+                    dispatch({ type: 'SET_NOTIFICATIONS', payload: data.notifications.items || [] });
+                    dispatch({ type: 'SET_NOTIFICATIONS_META', payload: data.notifications.meta || null });
+                }
                 if (Array.isArray(data.sessions)) {
                     // 后端可能返回字符串数组，也可能返回对象数组，这里统一标准化结构。
                     const mapped = data.sessions.map((s) =>
@@ -191,6 +198,8 @@ function App() {
                 return <ConfigView onRefresh={loadAll} />;
             case 'tasks':
                 return <TasksView onRefresh={loadAll} />;
+            case 'notifications':
+                return <NotificationsView onRefresh={loadAll} />;
             default:
                 return <StatusView onRefresh={loadAll} />;
         }

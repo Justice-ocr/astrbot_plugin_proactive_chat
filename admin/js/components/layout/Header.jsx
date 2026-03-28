@@ -48,6 +48,7 @@ function Header({ currentView }) {
     const viewTitles = {
         status: '运行状态',
         tasks: '任务管理',
+        notifications: '通知中心',
         config: '配置管理',
     };
 

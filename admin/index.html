@@ -18,12 +18,14 @@
     <link rel="stylesheet" href="css/style.css">
 
     <!-- 以 UMD 方式引入 React / Babel / MUI，方便纯静态资源场景直接运行。 -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" defer></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" defer></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js" defer></script>
-    <script src="https://unpkg.com/@mui/material@5/umd/material-ui.production.min.js" defer></script>
-    <script src="https://unpkg.com/@emotion/react@11/dist/emotion-react.umd.min.js" defer></script>
-    <script src="https://unpkg.com/@emotion/styled@11/dist/emotion-styled.umd.min.js" defer></script>
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" defer></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" defer></script>
+    <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" defer></script>
+    <script src="https://unpkg.com/@mui/material@5.16.7/umd/material-ui.production.min.js" defer></script>
+    <script src="https://unpkg.com/@emotion/react@11.13.3/dist/emotion-react.umd.min.js" defer></script>
+    <script src="https://unpkg.com/@emotion/styled@11.13.0/dist/emotion-styled.umd.min.js" defer></script>
+    <script src="https://unpkg.com/marked@14.1.2/marked.min.js" defer></script>
+    <script src="https://unpkg.com/dompurify@3.1.6/dist/purify.min.js" defer></script>
 </head>
 
 <body>
@@ -127,6 +129,7 @@
     <script type="text/babel" src="js/components/config/ConfigRenderer.jsx" defer></script>
     <script type="text/babel" src="js/views/ConfigView.jsx" defer></script>
     <script type="text/babel" src="js/views/TasksView.jsx" defer></script>
+    <script type="text/babel" src="js/views/NotificationsView.jsx" defer></script>
     <script type="text/babel" src="js/app.jsx" defer></script>
 </body>
 

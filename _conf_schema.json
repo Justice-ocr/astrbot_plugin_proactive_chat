@@ -417,7 +417,7 @@
             "enabled": {
                 "description": "✅ 启用 Web 管理端",
                 "type": "bool",
-                "default": false,
+                "default": true,
                 "hint": "启用后会启动主动消息插件的独立 WebUI 管理端"
             },
             "host": {
@@ -441,6 +441,29 @@
                 "type": "string",
                 "default": "",
                 "hint": "建议生产环境设置强密码"
+            }
+        }
+    },
+    "notification_settings": {
+        "description": "🔔 通知系统设置",
+        "type": "object",
+        "items": {
+            "enabled": {
+                "description": "✅ 启用通知系统",
+                "type": "bool",
+                "default": true,
+                "hint": "启用后，插件将定时从远端通知平台拉取通知并同步到 Web 管理端"
+            },
+            "poll_interval_seconds": {
+                "description": "通知轮询间隔（秒）",
+                "type": "int",
+                "default": 300,
+                "hint": "插件向远端通知平台轮询更新的时间间隔，最低将按 30 秒处理",
+                "slider": {
+                    "min": 30,
+                    "max": 3600,
+                    "step": 10
+                }
             }
         }
     }

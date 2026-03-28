@@ -36,6 +36,22 @@ function useApi() {
     );
 
     const listJobs = React.useCallback(() => window.HttpUtil.get('/api/jobs'), []);
+    const getNotifications = React.useCallback(
+        () => window.HttpUtil.get('/api/notifications'),
+        []
+    );
+    const readNotification = React.useCallback(
+        (id) => window.HttpUtil.post('/api/notifications/read', { id }),
+        []
+    );
+    const readAllNotifications = React.useCallback(
+        () => window.HttpUtil.post('/api/notifications/read-all', {}),
+        []
+    );
+    const refreshNotifications = React.useCallback(
+        () => window.HttpUtil.post('/api/notifications/refresh', {}),
+        []
+    );
     const triggerJob = React.useCallback(
         // “立即触发”接口本质上是一个无参 POST，因此 body 传空对象保持请求格式统一。
         (session) => window.HttpUtil.post(`/api/jobs/${encodeURIComponent(session)}/trigger`, {}),
@@ -58,6 +74,10 @@ function useApi() {
             updateSessionConfig,
             resetSessionConfig,
             listJobs,
+            getNotifications,
+            readNotification,
+            readAllNotifications,
+            refreshNotifications,
             triggerJob,
             cancelJob,
         }),
@@ -71,6 +91,10 @@ function useApi() {
             updateSessionConfig,
             resetSessionConfig,
             listJobs,
+            getNotifications,
+            readNotification,
+            readAllNotifications,
+            refreshNotifications,
             triggerJob,
             cancelJob,
         ]

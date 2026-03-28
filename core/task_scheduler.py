@@ -96,12 +96,28 @@ class SchedulerMixin:
                             int(schedule_conf.get("max_interval_minutes", 900)) * 60,
                         )
                         random_interval = random.randint(min_interval, max_interval)
-                        next_trigger_time = time.time() + random_interval
+                        scheduled_at = time.time()
+                        next_trigger_time = scheduled_at + random_interval
                         run_date = datetime.fromtimestamp(
                             next_trigger_time, tz=self.timezone
                         )
 
-                        # 自动触发任务不写入持久化数据
+                        # 自动触发生成的任务虽然不持久化到磁盘，但仍需补齐运行时元信息，
+                        # 以便 Web 管理端能够正确计算倒计时进度，而不是误判为满进度。
+                        session_payload = self.session_data.setdefault(
+                            captured_session_id, {}
+                        )
+                        session_payload["last_scheduled_at"] = scheduled_at
+                        session_payload["last_schedule_min_interval_seconds"] = (
+                            min_interval
+                        )
+                        session_payload["last_schedule_max_interval_seconds"] = (
+                            max_interval
+                        )
+                        session_payload["last_schedule_random_interval_seconds"] = (
+                            random_interval
+                        )
+
                         self.scheduler.add_job(
                             self.check_and_chat,
                             "date",

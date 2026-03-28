@@ -246,10 +246,11 @@
 
 ## 📂 插件目录与结构
 
-从 v1.2.0 版本开始，插件已经重构为 **前端控制台 + 模块化后端核心** 的结构：
+从 v1.2.0 版本开始，插件已经重构为 **前端控制台 + 模块化后端核心** 的结构；在后续迭代中，又继续加入了 **通知系统** 与更完善的文档组织：
 
-- **前端 (`admin/`)**：提供独立 Web 管理端，负责运行状态展示、任务管理、配置编辑与实时同步。
-- **后端核心 (`core/`)**：拆分为多个职责明确的模块，分别处理会话配置、调度、消息发送、上下文构建、持久化与 Web 管理服务。
+- **前端 (`admin/`)**：提供独立 Web 管理端，负责运行状态展示、任务管理、配置编辑、通知中心与实时同步。
+- **后端核心 (`core/`)**：拆分为多个职责明确的模块，分别处理会话配置、调度、消息发送、上下文构建、持久化、通知同步与 Web 管理服务。
+- **文档目录 (`docs/`)**：用于存放与实现配套的接口规范、设计约定等开发文档。
 - **插件入口 (`main.py`)**：作为 AstrBot 插件主入口，负责组装各核心模块并对接 AstrBot 生命周期。
 
 当前目录结构示例：
@@ -274,7 +275,7 @@ AstrBot/
          │     ├─ context/                    # 全局状态上下文
          │     ├─ hooks/                      # API / WebSocket 等复用逻辑
          │     ├─ utils/                      # 认证、HTTP、格式化工具
-         │     └─ views/                      # 状态页、任务页、配置页视图
+         │     └─ views/                      # 状态页、任务页、通知页、配置页视图
          │
          ├─ assets/                           # README / 仓库展示资源
          │
@@ -284,12 +285,16 @@ AstrBot/
          │  ├─ llm_adapter.py                 # LLM 调用适配层
          │  ├─ message_events.py              # AstrBot 事件接入与监听逻辑
          │  ├─ message_sender.py              # 文本 / TTS / 分段消息发送
+         │  ├─ notification_center.py         # 远端通知拉取、本地缓存与已读状态维护
          │  ├─ plugin_lifecycle.py            # 插件初始化、恢复与生命周期管理
          │  ├─ session_config.py              # 会话配置解析与生效逻辑
          │  ├─ session_override_manager.py    # 会话差异配置管理
          │  ├─ session_parser.py              # 会话 ID 解析与规范化
          │  ├─ task_scheduler.py              # 定时任务与触发调度逻辑
-         │  └─ web_admin_server.py            # 独立 Web 管理端后端服务
+         │  └─ web_admin_server.py            # 独立 Web 管理端后端服务与通知接口桥接
+         │
+         ├─ docs/                             # 项目内部开发文档
+         │  └─ notification-api-spec.md       # 通知系统 API 文档与前端类型映射约定
          │
          ├─ utils/
          │  └─ time_utils.py                  # 通用时间工具函数
@@ -299,20 +304,21 @@ AstrBot/
          ├─ CHANGELOG.md                      # 插件更新日志，适用于 AstrBot v4.11.2+
          ├─ CONTRIBUTING.md                   # 贡献指南
          ├─ LICENSE                           # 许可证文件
-         ├─ logo.png                          # 插件Logo，适用于 AstrBot v4.5.0+
+         ├─ logo.png                          # 插件 Logo，适用于 AstrBot v4.5.0+
          ├─ main.py                           # AstrBot 插件主入口
          ├─ metadata.yaml                     # 插件元数据
          ├─ README.md                         # 说明文档
          └─ requirements.txt                  # 依赖列表
 ```
 
-插件会在 `AstrBot/data/` 目录下创建自己的数据文件夹：
+插件会在 `AstrBot/data/` 目录下创建自己的数据文件夹，用于保存运行时状态、通知缓存与配置快照：
 
 ```bash
 AstrBot/
 └─ data/
    └─ plugin_data/
       └─ astrbot_plugin_proactive_chat/
+         ├─ notifications_cache.json          # 通知系统本地缓存与已读状态
          ├─ prompts_collection.md             # 自动生成的 Prompt 汇总
          ├─ session_data.json                 # 持久化会话数据
          └─ user_config_snapshot.json         # 用户配置备份

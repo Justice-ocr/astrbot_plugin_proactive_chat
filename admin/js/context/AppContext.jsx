@@ -20,6 +20,13 @@ const initialState = {
     config: null,
     // 调度任务列表，对应后端 /api/jobs。
     jobs: [],
+    // 通知列表与元信息，对应后端 /api/notifications。
+    notifications: [],
+    notificationsMeta: {
+        unread_count: 0,
+        last_sync_at: '',
+        total_count: 0,
+    },
     // 会话详情页当前选中的会话 ID。
     selectedSession: '',
     // 当前选中会话的 base / override / effective 详情。
@@ -51,6 +58,17 @@ function reducer(state, action) {
             return { ...state, config: action.payload || null };
         case 'SET_JOBS':
             return { ...state, jobs: action.payload || [] };
+        case 'SET_NOTIFICATIONS':
+            return { ...state, notifications: action.payload || [] };
+        case 'SET_NOTIFICATIONS_META':
+            return {
+                ...state,
+                notificationsMeta: action.payload || {
+                    unread_count: 0,
+                    last_sync_at: '',
+                    total_count: 0,
+                },
+            };
         case 'SET_SELECTED_SESSION':
             return { ...state, selectedSession: action.payload || '' };
         case 'SET_SESSION_DETAIL':

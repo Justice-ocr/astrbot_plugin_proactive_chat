@@ -1,0 +1,91 @@
+name: '📚 文档改进建议'
+title: '[Docs] '
+description: 提交文档错误、缺失说明或改进建议。
+labels: [ 'type/docs' ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您抽出时间帮助我们改进文档！如果您发现 README、配置说明、接口文档、示例或使用引导存在错误、缺失或难以理解的地方，请通过该模板告诉我们。
+
+  - type: textarea
+    attributes:
+      label: 文档问题描述
+      description: 请简要说明你发现了什么问题。
+      placeholder: >
+        如: README 中某个配置项说明过于简略，实际使用时不清楚其取值范围和影响。
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 涉及的文档位置
+      description: 请提供相关文档名称、章节、链接或文件路径。
+      placeholder: >
+        如: README.md 的“配置说明”章节，或某文档中的某一节。
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 你期望如何改进？
+      description: 请描述你认为更清晰的写法、应补充的信息，或你希望看到的示例。
+      placeholder: >
+        如: 希望补充字段含义、默认值、示例配置，以及与不同适配器相关的说明。
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: 文档问题类型
+      description: 请选择最接近的一项。
+      multiple: false
+      options:
+        - '内容错误或过期'
+        - '说明缺失或不完整'
+        - '示例不足或难以复现'
+        - '表述不清晰，容易误解'
+        - '排版、格式或链接问题'
+        - '其他'
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 使用背景（可选）
+      description: >
+        如果该问题与你的部署方式、适配器、AstrBot 版本或插件版本有关，可以在这里补充。
+      placeholder: >
+        如: Windows 启动器部署, AstrBot 4.5.7, QQ 个人号 (OneBot v11), 插件 v1.1.4。
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: 可参考的内容（可选）
+      description: >
+        如你已经写好了建议文案、示例配置、截图或对照资料，可在这里附上。
+      placeholder: >
+        可粘贴建议文本、示例配置、截图链接或其他补充材料。
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: 你愿意提交 PR 吗？
+      description: >
+        这不是必须的，但我们欢迎您直接参与文档改进。
+      options:
+        - label: 是的，我愿意提交 PR!
+
+  - type: checkboxes
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: >
+            我已阅读并同意遵守该项目的 [行为准则](https://docs.github.com/zh/site-policy/github-terms/github-community-code-of-conduct)。
+          required: true
+
+  - type: markdown
+    attributes:
+      value: "感谢您填写我们的表单！"

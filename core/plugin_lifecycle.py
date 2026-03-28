@@ -26,6 +26,7 @@ class LifecycleMixin:
     data_dir: any
     session_data_file: any
     web_admin_server: any
+    notification_center: any
 
     async def initialize(self) -> None:
         """插件的异步初始化函数。"""
@@ -92,6 +93,13 @@ class LifecycleMixin:
 
         await self._setup_auto_triggers_for_enabled_sessions()
         logger.info("[主动消息] 自动主动消息触发器初始化完成喵。")
+
+        # 启动通知系统
+        try:
+            if self.notification_center:
+                await self.notification_center.start()
+        except Exception as e:
+            logger.error(f"[主动消息] 通知系统启动失败喵: {e}")
 
         # 启动 Web 管理端
         try:
@@ -166,6 +174,13 @@ class LifecycleMixin:
                     await self.web_admin_server.stop()
                 except Exception as e:
                     logger.warning(f"[主动消息] 停止 Web 管理端时出错喵: {e}")
+
+            # 停止通知系统
+            if self.notification_center:
+                try:
+                    await self.notification_center.stop()
+                except Exception as e:
+                    logger.warning(f"[主动消息] 停止通知系统时出错喵: {e}")
         finally:
             # 确保终止日志一定输出
             logger.info("[主动消息] 主动消息插件已终止喵。")

@@ -195,6 +195,9 @@ class WebAdminServer:
                 "friend_settings": dict(self.config.get("friend_settings", {})),
                 "group_settings": dict(self.config.get("group_settings", {})),
                 "web_admin": web_admin,
+                "notification_settings": dict(
+                    self.config.get("notification_settings", {})
+                ),
             }
 
         @self.app.get("/api/config-schema")
@@ -350,6 +353,55 @@ class WebAdminServer:
             # 返回调度器中的待执行任务列表，供任务页卡片展示。
             return {"jobs": self._collect_jobs()}
 
+        @self.app.get("/api/notifications")
+        async def get_notifications():
+            # 通知列表统一从插件本地缓存读取，前端不直接访问外部通知平台。
+            # 复用统一的通知载荷构造函数，确保 HTTP 与 WebSocket 输出结构保持一致。
+            return await self._build_notification_payload()
+
+        @self.app.post("/api/notifications/read")
+        async def mark_notification_read(payload: dict[str, Any]):
+            # 单条已读只影响插件本地缓存中的 read_map，不涉及远端接口写回。
+            if not getattr(self.plugin, "notification_center", None):
+                return JSONResponse({"error": "通知系统不可用"}, status_code=503)
+
+            notification_id = payload.get("id")
+            if notification_id is None:
+                return JSONResponse({"error": "缺少必填字段 id"}, status_code=400)
+            try:
+                normalized_id = int(notification_id)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "id 必须是数字"}, status_code=400)
+
+            result = await self.plugin.notification_center.mark_as_read(normalized_id)
+            await self._broadcast_update("notifications")
+            return result
+
+        @self.app.post("/api/notifications/read-all")
+        async def mark_all_notifications_read():
+            # 批量已读后立即广播，保证多个已打开页面的未读角标同步归零。
+            if not getattr(self.plugin, "notification_center", None):
+                return JSONResponse({"error": "通知系统不可用"}, status_code=503)
+            result = await self.plugin.notification_center.mark_all_as_read()
+            await self._broadcast_update("notifications")
+            return result
+
+        @self.app.post("/api/notifications/refresh")
+        async def refresh_notifications():
+            # 供前端“立即同步”按钮调用，强制拉取远端最新通知并回传完整快照。
+            if not getattr(self.plugin, "notification_center", None):
+                return JSONResponse({"error": "通知系统不可用"}, status_code=503)
+            changed = await self.plugin.notification_center.refresh()
+            # 即便 changed 为 False，也广播一次，确保当前页面拿到最新同步时间等元信息。
+            await self._broadcast_update("notifications")
+            payload = await self.plugin.notification_center.get_payload()
+            return {
+                "ok": True,
+                "changed": changed,
+                "items": payload.get("items", []),
+                "meta": payload.get("meta", {}),
+            }
+
         @self.app.post("/api/open-directory")
         async def open_directory(payload: dict[str, Any]):
             # 允许前端请求打开插件目录或数据目录，便于管理员快速定位文件。
@@ -483,6 +535,7 @@ class WebAdminServer:
 
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
+            # 当前 WebSocket 通道统一承载运行状态、任务、会话摘要与通知系统的实时同步。
             if self._auth_enabled:
                 # WebSocket 无法沿用普通中间件，这里单独做一次 token 校验。
                 token = websocket.query_params.get("token", "")
@@ -507,6 +560,7 @@ class WebAdminServer:
                             "status": self._build_status_payload(),
                             "jobs": self._collect_jobs(),
                             "sessions": self._list_known_session_summaries(),
+                            "notifications": await self._build_notification_payload(),
                         },
                     }
                 )
@@ -526,6 +580,7 @@ class WebAdminServer:
                                     "status": self._build_status_payload(),
                                     "jobs": self._collect_jobs(),
                                     "sessions": self._list_known_session_summaries(),
+                                    "notifications": await self._build_notification_payload(),
                                 },
                             }
                         )
@@ -875,7 +930,21 @@ class WebAdminServer:
             )
         return result
 
+    async def _build_notification_payload(self) -> dict[str, Any]:
+        # 统一封装通知载荷构造，避免 HTTP 路由、首次 WS 快照和增量广播各自重复拼装。
+        if not getattr(self.plugin, "notification_center", None):
+            return {
+                "items": [],
+                "meta": {
+                    "unread_count": 0,
+                    "last_sync_at": None,
+                    "total_count": 0,
+                },
+            }
+        return await self.plugin.notification_center.get_payload()
+
     async def _broadcast_update(self, reason: str) -> None:
+        # 若当前没有任何活跃前端连接，则无需构造完整广播载荷，可直接返回。
         if not self._ws_connections:
             return
 
@@ -886,6 +955,7 @@ class WebAdminServer:
                 "status": self._build_status_payload(),
                 "jobs": self._collect_jobs(),
                 "sessions": self._list_known_session_summaries(),
+                "notifications": await self._build_notification_payload(),
             },
         }
 

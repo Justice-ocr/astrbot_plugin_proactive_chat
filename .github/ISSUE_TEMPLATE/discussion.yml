@@ -1,0 +1,104 @@
+name: '❓ 使用咨询 / 问题讨论'
+title: '[Discussion] '
+description: 提交咨询、排查思路或开放性讨论。
+labels: [ 'type/discussion' ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您抽出时间发起讨论！如果您暂时不能确定这是否是插件 Bug，或者希望先进行使用咨询、兼容性排查、方案讨论，都可以使用该模板。
+
+  - type: textarea
+    attributes:
+      label: 你想实现什么？
+      description: 请描述你的目标、预期效果，或你当前想确认的问题。
+      placeholder: >
+        如: 我希望插件在满足某个条件后自动发送消息，但当前不确定是配置问题、平台限制还是插件行为如此。
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 当前实际情况
+      description: 请描述你目前观察到的现象、输出结果或不符合预期的行为。
+      placeholder: >
+        如: 插件已经加载成功，但没有按预期触发；后台没有明显报错，只能看到部分调试日志。
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 你已经尝试过哪些方法？
+      description: 请简要说明你已经做过的排查、对照或临时处理方式。
+      placeholder: >
+        如: 已检查配置项、重启 AstrBot、切换适配器环境、提高日志等级、对照 README 重新配置。
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: 你目前对问题性质的判断
+      description: 这有助于我们更快判断后续应继续讨论、补文档，还是转为 Bug。
+      multiple: false
+      options:
+        - '不确定，想先确认是否为预期行为'
+        - '可能是插件 Bug，但还不能确定'
+        - '更像是配置、部署或适配器相关问题'
+        - '更像是使用方式或文档理解问题'
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 使用的插件版本、AstrBot 版本、部署方式、使用的消息平台适配器
+      description: >
+        请提供你使用的插件版本、AstrBot 版本、部署方式及消息平台适配器等信息。
+      placeholder: >
+        如: v1.1.4, AstrBot 4.5.7, Windows 启动器部署, QQ 个人号 (OneBot v11)
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: 操作系统
+      description: |
+        你当前主要运行在什么操作系统上？
+      multiple: false
+      options:
+        - 'Windows'
+        - 'macOS'
+        - 'Linux'
+        - 'Other'
+        - 'Not sure'
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 相关配置、日志或截图
+      description: >
+        如相关配置片段、控制台输出、截图等。涉及隐私信息时请先脱敏。
+      placeholder: >
+        请尽量提供能帮助定位问题的配置、日志或截图。
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: 你愿意在结论明确后提交 PR 或协助补充文档吗？
+      description: >
+        这不是必需的，但如果你愿意参与后续修复或补充说明，会非常有帮助。
+      options:
+        - label: 是的，我愿意在问题明确后协助推进。
+
+  - type: checkboxes
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: >
+            我已阅读并同意遵守该项目的 [行为准则](https://docs.github.com/zh/site-policy/github-terms/github-community-code-of-conduct)。
+          required: true
+
+  - type: markdown
+    attributes:
+      value: "感谢您填写我们的表单！"

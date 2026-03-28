@@ -19,6 +19,7 @@ from .core.data_storage import StorageMixin
 from .core.llm_adapter import LlmMixin
 from .core.message_events import EventsMixin
 from .core.message_sender import SenderMixin
+from .core.notification_center import NotificationCenter
 from .core.plugin_lifecycle import LifecycleMixin
 from .core.session_config import ConfigMixin
 from .core.session_override_manager import SessionOverrideManager
@@ -60,8 +61,9 @@ class ProactiveChatPlugin(
         self.data_lock = None
         self.session_data: dict = {}
 
-        # 会话差异配置管理器与 Web 管理端
+        # 会话差异配置管理器、通知中心与 Web 管理端
         self.session_override_manager = SessionOverrideManager(self.data_dir)
+        self.notification_center = NotificationCenter(self)
         self.web_admin_server = WebAdminServer(self)
 
         # 群聊沉默倒计时与自动触发计时器

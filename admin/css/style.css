@@ -1444,6 +1444,129 @@ body.dark-theme .status-timer-info-item {
     margin-bottom: 12px;
 }
 
+.notifications-view {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.notifications-hero-card {
+    padding: 18px 24px;
+    background:
+        linear-gradient(135deg, rgba(103, 80, 164, 0.08), rgba(103, 80, 164, 0.025) 48%, rgba(255, 255, 255, 0.72) 100%),
+        var(--md-sys-color-surface);
+    position: relative;
+    overflow: hidden;
+}
+
+.notifications-hero-card::after {
+    content: '';
+    position: absolute;
+    inset: auto -40px -56px auto;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(103, 80, 164, 0.14), transparent 68%);
+    pointer-events: none;
+}
+
+.notifications-header-row {
+    margin-bottom: 0;
+    align-items: flex-start;
+    position: relative;
+    z-index: 1;
+}
+
+.notifications-header-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.notifications-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 14px 18px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.notifications-inline-meta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin-top: 0;
+    max-width: none;
+}
+
+.notifications-inline-meta-item {
+    min-width: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.notifications-inline-meta-item.is-pill {
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.58);
+    border: 1px solid rgba(103, 80, 164, 0.12);
+    box-shadow: none;
+}
+
+.notifications-inline-meta-item strong {
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 700;
+    color: var(--md-sys-color-on-surface);
+    word-break: break-word;
+}
+
+.notifications-inline-meta-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--md-sys-color-on-surface-variant);
+    white-space: nowrap;
+}
+
+.notifications-actions-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    padding-left: 12px;
+    padding-top: 2px;
+}
+
+.notifications-actions-row .MuiButton-root {
+    min-height: 52px;
+    padding: 0 22px;
+    border-radius: 18px;
+    font-weight: 700;
+    box-shadow: none;
+    border-width: 1px;
+}
+
+.notifications-empty-card {
+    padding: 56px 28px;
+}
+
+.notifications-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
 .tasks-grid-enhanced {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
@@ -1458,6 +1581,118 @@ body.dark-theme .status-timer-info-item {
     min-height: 320px;
     position: relative;
     overflow: hidden;
+}
+
+.notification-feed-card {
+    min-height: auto;
+    padding: 18px 20px 16px;
+    gap: 12px;
+    border-radius: 20px;
+    background:
+        linear-gradient(180deg, rgba(103, 80, 164, 0.06), rgba(103, 80, 164, 0.02) 34%, rgba(255, 255, 255, 0.78) 100%),
+        var(--md-sys-color-surface);
+    box-shadow: 0 8px 24px rgba(103, 80, 164, 0.08);
+}
+
+.notification-feed-card::after {
+    width: 140px;
+    height: 140px;
+    inset: auto -34px -46px auto;
+    background: radial-gradient(circle, rgba(103, 80, 164, 0.12), transparent 70%);
+}
+
+.notification-feed-card.is-read {
+    border-color: rgba(103, 80, 164, 0.10);
+}
+
+.notification-feed-card-top {
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding-bottom: 2px;
+}
+
+.notification-feed-heading-group {
+    min-width: 0;
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+}
+
+.notification-feed-title-block {
+    gap: 6px;
+}
+
+.notification-feed-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.notification-feed-time {
+    opacity: 0.78;
+    font-size: 11.5px !important;
+}
+
+.notification-feed-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 1.22rem !important;
+    line-height: 1.35 !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.notification-feed-side {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding-top: 1px;
+}
+
+.notification-feed-meta-inline {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    padding-left: 12px;
+}
+
+.notification-feed-heading-group .MuiChip-root,
+.notification-feed-type-chip {
+    height: 30px;
+    border-radius: 999px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-left: 0;
+}
+
+.notification-feed-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.notification-feed-status-pill.is-read {
+    color: #5B6472;
+    background: rgba(91, 100, 114, 0.10);
+    border-color: rgba(91, 100, 114, 0.14);
+}
+
+.notification-feed-status-pill.is-unread {
+    color: #B45309;
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.22);
 }
 
 .task-card-enhanced::after {
@@ -1530,6 +1765,49 @@ body.dark-theme .status-timer-info-item {
     display: flex;
     flex-direction: column;
     gap: 10px;
+}
+
+.notification-feed-content-panel {
+    position: relative;
+    padding: 16px 16px 56px;
+    background: linear-gradient(180deg, rgba(103, 80, 164, 0.08), rgba(103, 80, 164, 0.035));
+    border-color: rgba(103, 80, 164, 0.09);
+    border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.notification-feed-content-text {
+    color: var(--md-sys-color-on-surface);
+}
+
+.notification-feed-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding-top: 0;
+}
+
+.notification-feed-actions .MuiButton-root {
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 18px;
+    border-width: 1px;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.62);
+    box-shadow: none;
+}
+
+.notification-feed-actions .MuiButton-root.Mui-disabled {
+    background: rgba(255, 255, 255, 0.34);
+    border-color: rgba(103, 80, 164, 0.10);
+}
+
+.notification-feed-actions-inside {
+    position: absolute;
+    right: 14px;
+    bottom: 12px;
+    justify-content: flex-end;
 }
 
 .task-next-run-primary-row {
@@ -1626,6 +1904,59 @@ body.dark-theme .sidebar-github-meta {
     opacity: 0.9;
 }
 
+body.dark-theme .notifications-hero-card {
+    background:
+        linear-gradient(135deg, rgba(208, 188, 255, 0.10), rgba(79, 55, 139, 0.10) 50%, rgba(28, 27, 31, 0.78) 100%),
+        var(--md-sys-color-surface);
+}
+
+
+body.dark-theme .notification-feed-card {
+    background:
+        linear-gradient(180deg, rgba(208, 188, 255, 0.09), rgba(208, 188, 255, 0.025) 34%, rgba(28, 27, 31, 0.88) 100%),
+        var(--md-sys-color-surface);
+    border-color: rgba(208, 188, 255, 0.10);
+}
+
+body.dark-theme .notifications-actions-row .MuiButton-root {
+    box-shadow: none;
+}
+
+body.dark-theme .notifications-inline-meta-item.is-pill {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(208, 188, 255, 0.12);
+    box-shadow: none;
+}
+
+body.dark-theme .notification-feed-status-pill.is-read {
+    color: #C7CFD9;
+    background: rgba(199, 207, 217, 0.12);
+    border-color: rgba(199, 207, 217, 0.18);
+}
+
+body.dark-theme .notification-feed-status-pill.is-unread {
+    color: #FBC02D;
+    background: rgba(251, 192, 45, 0.14);
+    border-color: rgba(251, 192, 45, 0.22);
+}
+
+body.dark-theme .notification-feed-content-panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
+    border-color: rgba(208, 188, 255, 0.10);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body.dark-theme .notification-feed-actions .MuiButton-root {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(208, 188, 255, 0.18);
+    box-shadow: none;
+}
+
+body.dark-theme .notification-feed-actions .MuiButton-root.Mui-disabled {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(208, 188, 255, 0.10);
+}
+
 body.dark-theme .status-metric-label,
 body.dark-theme .status-timer-section-desc,
 body.dark-theme .status-timer-kicker,
@@ -1636,7 +1967,9 @@ body.dark-theme .task-next-run-label,
 body.dark-theme .status-timer-label,
 body.dark-theme .status-timer-info-label,
 body.dark-theme .tasks-header-subtitle,
-body.dark-theme .task-countdown-text {
+body.dark-theme .task-countdown-text,
+body.dark-theme .notifications-inline-meta-label,
+body.dark-theme .notification-feed-time {
     color: var(--md-sys-color-on-surface-variant);
     opacity: 0.95;
 }
@@ -1792,6 +2125,21 @@ body.dark-theme .connection-chip {
         align-items: flex-start;
     }
 
+    .notifications-actions-row {
+        width: 100%;
+        justify-content: flex-start;
+        padding-left: 0;
+    }
+
+    .notifications-title-row {
+        align-items: flex-start;
+    }
+
+    .notifications-inline-meta {
+        width: 100%;
+        gap: 8px 10px;
+    }
+
     .status-timer-info-grid {
         grid-template-columns: 1fr;
     }
@@ -1849,6 +2197,41 @@ body.dark-theme .connection-chip {
     .status-timer-primary-row {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .notification-feed-side,
+    .notification-feed-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .notification-feed-card-top {
+        align-items: flex-start;
+    }
+
+    .notification-feed-heading-group {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .notification-feed-title {
+        width: 100%;
+        white-space: normal;
+    }
+
+    .notification-feed-meta-inline {
+        padding-left: 0;
+        gap: 8px;
+    }
+
+    .notification-feed-content-panel {
+        padding: 14px 15px 54px;
+    }
+
+    .notification-feed-actions-inside {
+        right: 12px;
+        bottom: 10px;
     }
 
     .status-timer-card-top {
