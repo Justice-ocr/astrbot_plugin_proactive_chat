@@ -1110,6 +1110,20 @@ class WebAdminServer:
         plugin_root = Path(__file__).resolve().parent.parent.resolve()
         return str(path.resolve().relative_to(plugin_root)).replace("\\", "/")
 
+    async def _broadcast_ws_payload(self, payload: dict[str, Any]) -> None:
+        # 广播发送与失活连接清理抽到公共方法，避免多个广播入口重复维护同一逻辑。
+        to_remove: list[WebSocket] = []
+        for ws in list(self._ws_connections):
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                # 某些连接可能已失活，先记录下来，循环结束后统一清理。
+                to_remove.append(ws)
+
+        for ws in to_remove:
+            if ws in self._ws_connections:
+                self._ws_connections.remove(ws)
+
     async def _broadcast_update(self, reason: str) -> None:
         # 若当前没有任何活跃前端连接，则无需构造完整广播载荷，可直接返回。
         if not self._ws_connections:
@@ -1126,43 +1140,29 @@ class WebAdminServer:
                 "notifications": await self._build_notification_payload(),
             },
         }
-
-        to_remove: list[WebSocket] = []
-        for ws in list(self._ws_connections):
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                # 某些连接可能已失活，先记录下来，循环结束后统一清理。
-                to_remove.append(ws)
-
-        for ws in to_remove:
-            if ws in self._ws_connections:
-                self._ws_connections.remove(ws)
+        await self._broadcast_ws_payload(payload)
 
     async def _broadcast_notification_meta_update(self, reason: str) -> None:
         # 轻量广播仅同步通知元信息，避免在轮询无内容变更时重复发送完整通知列表。
         if not self._ws_connections:
             return
 
-        notification_payload = await self._build_notification_payload()
+        if not getattr(self.plugin, "notification_center", None):
+            notification_meta = {
+                "unread_count": 0,
+                "last_sync_at": None,
+                "total_count": 0,
+            }
+        else:
+            notification_meta = await self.plugin.notification_center.get_meta()
         payload = {
             "type": "update",
             "reason": reason,
             "data": {
-                "notificationsMeta": notification_payload.get("meta", {}),
+                "notificationsMeta": notification_meta,
             },
         }
-
-        to_remove: list[WebSocket] = []
-        for ws in list(self._ws_connections):
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                to_remove.append(ws)
-
-        for ws in to_remove:
-            if ws in self._ws_connections:
-                self._ws_connections.remove(ws)
+        await self._broadcast_ws_payload(payload)
 
     async def start(self) -> None:
         if not FASTAPI_AVAILABLE:
