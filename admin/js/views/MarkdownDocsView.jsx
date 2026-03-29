@@ -7,6 +7,7 @@ const { Box, Typography, Button, Chip } = MaterialUI;
 function MarkdownDocsView() {
     const { state, dispatch } = useAppContext();
     const api = useApi();
+    const articleRef = React.useRef(null);
     // 从全局状态读取文档目录与当前选中文档，便于视图切换后仍能保留上下文。
     const markdownFiles = Array.isArray(state.markdownFiles) ? state.markdownFiles : [];
     const markdownDocument = state.markdownDocument || null;
@@ -92,6 +93,265 @@ function MarkdownDocsView() {
         // 文档正文和通知正文共用同一套 MarkdownRenderUtil，确保渲染风格一致。
         ? window.MarkdownRenderUtil.renderMarkdownToHtml(markdownDocument.content)
         : '';
+
+    React.useEffect(() => {
+        const articleEl = articleRef.current;
+        const mermaid = window.mermaid;
+        if (!articleEl) return;
+
+        const mermaidBlocks = articleEl.querySelectorAll('.notification-md-mermaid[data-mermaid-source]');
+        if (!mermaidBlocks.length) return;
+
+        if (!mermaid || typeof mermaid.render !== 'function') {
+            mermaidBlocks.forEach((block) => {
+                block.classList.add('is-error');
+            });
+            return;
+        }
+
+        if (!window.__PROACTIVE_MERMAID_INITIALIZED && typeof mermaid.initialize === 'function') {
+            mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: 'strict',
+                theme: state.theme === 'dark' ? 'dark' : 'default',
+            });
+            window.__PROACTIVE_MERMAID_INITIALIZED = true;
+        }
+
+        let disposed = false;
+        const cleanupFns = [];
+
+        const attachMermaidViewportControls = (block) => {
+            const svg = block.querySelector('svg');
+            if (!svg) return;
+
+            const currentSvg = svg;
+            const svgViewBox = currentSvg.viewBox?.baseVal;
+            const fallbackWidth = Number(currentSvg.getAttribute('width')) || currentSvg.clientWidth || 1200;
+            const fallbackHeight = Number(currentSvg.getAttribute('height')) || currentSvg.clientHeight || 800;
+            const intrinsicWidth = svgViewBox && svgViewBox.width ? svgViewBox.width : fallbackWidth;
+            const intrinsicHeight = svgViewBox && svgViewBox.height ? svgViewBox.height : fallbackHeight;
+
+            currentSvg.removeAttribute('width');
+            currentSvg.removeAttribute('height');
+            currentSvg.style.width = `${intrinsicWidth}px`;
+            currentSvg.style.height = `${intrinsicHeight}px`;
+            currentSvg.style.maxWidth = 'none';
+            currentSvg.style.maxHeight = 'none';
+
+            const existingViewport = block.querySelector('.notification-md-mermaid-viewport');
+            if (existingViewport) {
+                existingViewport.remove();
+            }
+            const existingToolbar = block.parentElement?.querySelector('.notification-md-mermaid-toolbar');
+            if (existingToolbar) {
+                existingToolbar.remove();
+            }
+
+            const viewport = document.createElement('div');
+            viewport.className = 'notification-md-mermaid-viewport';
+
+            const canvas = document.createElement('div');
+            canvas.className = 'notification-md-mermaid-canvas';
+            canvas.style.width = `${intrinsicWidth}px`;
+            canvas.style.height = `${intrinsicHeight}px`;
+            canvas.appendChild(currentSvg);
+            viewport.appendChild(canvas);
+            block.appendChild(viewport);
+
+            const toolbar = document.createElement('div');
+            toolbar.className = 'notification-md-mermaid-toolbar';
+            toolbar.innerHTML = [
+                '<button type="button" class="notification-md-mermaid-tool-btn" data-action="zoom-in">＋</button>',
+                '<button type="button" class="notification-md-mermaid-tool-btn" data-action="zoom-out">－</button>',
+                '<button type="button" class="notification-md-mermaid-tool-btn" data-action="reset">重置</button>',
+            ].join('');
+            block.parentElement.insertBefore(toolbar, block);
+
+            const stateRef = {
+                scale: 1,
+                dragging: false,
+                pointerId: null,
+                startX: 0,
+                startY: 0,
+                startScrollLeft: 0,
+                startScrollTop: 0,
+            };
+
+            const clampScale = (value) => Math.min(12, Math.max(0.35, value));
+            const getFitScale = () => {
+                const viewportWidth = viewport.clientWidth || intrinsicWidth;
+                const viewportHeight = viewport.clientHeight || intrinsicHeight;
+                if (!viewportWidth || !viewportHeight || !intrinsicWidth || !intrinsicHeight) {
+                    return 1;
+                }
+                const fitScale = Math.min(viewportWidth / intrinsicWidth, viewportHeight / intrinsicHeight, 1);
+                return clampScale(Number(fitScale.toFixed(3)));
+            };
+            const applyScale = () => {
+                canvas.style.width = `${intrinsicWidth * stateRef.scale}px`;
+                canvas.style.height = `${intrinsicHeight * stateRef.scale}px`;
+                currentSvg.style.width = '100%';
+                currentSvg.style.height = '100%';
+
+                requestAnimationFrame(() => {
+                    const canPanX = viewport.scrollWidth - viewport.clientWidth > 2;
+                    const canPanY = viewport.scrollHeight - viewport.clientHeight > 2;
+                    viewport.classList.toggle('is-pannable', canPanX || canPanY);
+                });
+            };
+            const centerViewport = () => {
+                const targetScrollLeft = Math.max((viewport.scrollWidth - viewport.clientWidth) / 2, 0);
+                const targetScrollTop = Math.max((viewport.scrollHeight - viewport.clientHeight) / 2, 0);
+                viewport.scrollLeft = targetScrollLeft;
+                viewport.scrollTop = targetScrollTop;
+            };
+            const resetTransform = () => {
+                stateRef.scale = getFitScale();
+                applyScale();
+                requestAnimationFrame(() => {
+                    centerViewport();
+                });
+            };
+            const zoomBy = (delta, originX = null, originY = null) => {
+                const prevScale = stateRef.scale;
+                const nextScale = clampScale(Number((prevScale + delta).toFixed(3)));
+                if (nextScale === prevScale) return;
+
+                const viewportRect = viewport.getBoundingClientRect();
+                const anchorClientX = originX === null ? viewportRect.left + viewportRect.width / 2 : originX;
+                const anchorClientY = originY === null ? viewportRect.top + viewportRect.height / 2 : originY;
+                const localX = anchorClientX - viewportRect.left;
+                const localY = anchorClientY - viewportRect.top;
+                const contentX = (viewport.scrollLeft + localX) / prevScale;
+                const contentY = (viewport.scrollTop + localY) / prevScale;
+
+                stateRef.scale = nextScale;
+                applyScale();
+
+                const nextScrollLeft = contentX * nextScale - localX;
+                const nextScrollTop = contentY * nextScale - localY;
+                viewport.scrollLeft = Math.max(0, nextScrollLeft);
+                viewport.scrollTop = Math.max(0, nextScrollTop);
+
+                if (stateRef.scale <= 1.001) {
+                    centerViewport();
+                }
+            };
+
+            const onToolbarClick = (event) => {
+                const action = event.target?.getAttribute('data-action');
+                if (!action) return;
+                if (action === 'zoom-in') zoomBy(0.35);
+                if (action === 'zoom-out') zoomBy(-0.35);
+                if (action === 'reset') resetTransform();
+            };
+
+            const onWheel = (event) => {
+                if (!(event.ctrlKey || event.metaKey)) return;
+                event.preventDefault();
+                zoomBy(event.deltaY < 0 ? 0.28 : -0.28, event.clientX, event.clientY);
+            };
+
+            const onPointerDown = (event) => {
+                const canPanX = viewport.scrollWidth - viewport.clientWidth > 2;
+                const canPanY = viewport.scrollHeight - viewport.clientHeight > 2;
+                if (!canPanX && !canPanY) return;
+                stateRef.dragging = true;
+                stateRef.pointerId = event.pointerId;
+                stateRef.startX = event.clientX;
+                stateRef.startY = event.clientY;
+                stateRef.startScrollLeft = viewport.scrollLeft;
+                stateRef.startScrollTop = viewport.scrollTop;
+                viewport.classList.add('is-dragging');
+                if (typeof viewport.setPointerCapture === 'function') {
+                    viewport.setPointerCapture(event.pointerId);
+                }
+            };
+
+            const onPointerMove = (event) => {
+                if (!stateRef.dragging || stateRef.pointerId !== event.pointerId) return;
+                viewport.scrollLeft = stateRef.startScrollLeft - (event.clientX - stateRef.startX);
+                viewport.scrollTop = stateRef.startScrollTop - (event.clientY - stateRef.startY);
+            };
+
+            const endDrag = (event) => {
+                if (event && stateRef.pointerId !== event.pointerId) return;
+                stateRef.dragging = false;
+                viewport.classList.remove('is-dragging');
+                if (event && typeof viewport.releasePointerCapture === 'function') {
+                    try {
+                        viewport.releasePointerCapture(event.pointerId);
+                    } catch (e) {
+                        // 某些浏览器在 pointer capture 状态不一致时会抛错，这里静默忽略。
+                    }
+                }
+                stateRef.pointerId = null;
+            };
+
+            toolbar.addEventListener('click', onToolbarClick);
+            viewport.addEventListener('wheel', onWheel, { passive: false });
+            viewport.addEventListener('pointerdown', onPointerDown);
+            viewport.addEventListener('pointermove', onPointerMove);
+            viewport.addEventListener('pointerup', endDrag);
+            viewport.addEventListener('pointercancel', endDrag);
+
+            cleanupFns.push(() => {
+                toolbar.removeEventListener('click', onToolbarClick);
+                viewport.removeEventListener('wheel', onWheel);
+                viewport.removeEventListener('pointerdown', onPointerDown);
+                viewport.removeEventListener('pointermove', onPointerMove);
+                viewport.removeEventListener('pointerup', endDrag);
+                viewport.removeEventListener('pointercancel', endDrag);
+            });
+
+            stateRef.scale = getFitScale();
+            applyScale();
+            requestAnimationFrame(() => {
+                centerViewport();
+            });
+        };
+
+        const renderAllMermaidBlocks = async () => {
+            for (let index = 0; index < mermaidBlocks.length; index += 1) {
+                if (disposed) return;
+                const block = mermaidBlocks[index];
+                const source = String(block.getAttribute('data-mermaid-source') || '').trim();
+                if (!source) continue;
+
+                const renderId = `proactive-mermaid-${currentDocumentPath || 'doc'}-${index}-${Date.now()}`
+                    .replace(/[^a-zA-Z0-9_-]/g, '-');
+
+                try {
+                    block.classList.remove('is-error');
+                    if (typeof mermaid.parse === 'function') {
+                        await mermaid.parse(source, { suppressErrors: true });
+                    }
+                    const renderResult = await mermaid.render(renderId, source);
+                    if (disposed) return;
+                    block.innerHTML = renderResult?.svg || '';
+                    attachMermaidViewportControls(block);
+                } catch (error) {
+                    if (disposed) return;
+                    block.classList.add('is-error');
+                    block.textContent = source;
+                }
+            }
+        };
+
+        renderAllMermaidBlocks();
+
+        return () => {
+            disposed = true;
+            cleanupFns.forEach((cleanup) => {
+                try {
+                    cleanup();
+                } catch (e) {
+                    // 组件卸载阶段的清理错误不影响主流程。
+                }
+            });
+        };
+    }, [currentDocumentPath, renderedHtml, state.theme]);
 
     return (
         <Box className="notifications-view markdown-docs-view">
@@ -218,6 +478,7 @@ function MarkdownDocsView() {
                                     </div>
                                 </div>
                                 <Box
+                                    ref={articleRef}
                                     className="task-countdown-text notification-feed-content-text notification-md markdown-docs-article"
                                     // 这里直接挂载已经渲染好的 HTML，正文样式由 notification-md 体系统一承接。
                                     dangerouslySetInnerHTML={{ __html: renderedHtml }}

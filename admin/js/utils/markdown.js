@@ -20,6 +20,7 @@ const MARKDOWN_CODE_LANGUAGE_LABELS = {
     css: 'CSS',
     md: 'Markdown',
     markdown: 'Markdown',
+    mermaid: 'Mermaid',
     text: 'Text',
     plaintext: 'Text',
 };
@@ -27,10 +28,10 @@ const MARKDOWN_CODE_LANGUAGE_LABELS = {
 const MARKDOWN_SANITIZE_OPTIONS = {
     // 白名单只开放管理端实际需要的 Markdown 标签，减少攻击面。
     ALLOWED_TAGS: [
-        'a', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'hr', 'img', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul'
+        'a', 'blockquote', 'br', 'code', 'del', 'details', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'hr', 'img', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'summary', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul'
     ],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'data-language', 'src', 'alt', 'title', 'width', 'height', 'align'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'data-language', 'data-mermaid-source', 'src', 'alt', 'title', 'width', 'height', 'align', 'open', 'loading', 'decoding', 'referrerpolicy'],
     FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
     FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick', 'onmouseover', 'onfocus'],
     RETURN_DOM_FRAGMENT: true,
@@ -131,12 +132,33 @@ function highlightMarkdownCode(code, language) {
             .join('\n');
     }
 
+    // Mermaid 图表源码不做语法高亮，直接保留为纯文本，避免破坏图定义。
+    if (normalizedLanguage === 'mermaid') {
+        return escaped;
+    }
+
     // 未识别语言时保持纯转义文本，至少保证安全与可读。
     return escaped;
 }
 
+function buildMarkdownMermaidBlockHtml(code) {
+    const normalizedCode = normalizeMarkdownContent(code).trim();
+    const escapedCode = escapeMarkdownHtml(normalizedCode);
+    return [
+        '<div class="notification-md-mermaid-block" data-language="mermaid">',
+        '<div class="notification-md-code-header">',
+        `<span class="notification-md-code-lang">${escapeMarkdownHtml(getMarkdownLanguageLabel('mermaid'))}</span>`,
+        '</div>',
+        `<div class="notification-md-mermaid" data-mermaid-source="${escapedCode}">${escapedCode}</div>`,
+        '</div>',
+    ].join('');
+}
+
 function buildMarkdownCodeBlockHtml(code, language) {
     const normalizedLanguage = normalizeMarkdownLanguageName(language);
+    if (normalizedLanguage === 'mermaid') {
+        return buildMarkdownMermaidBlockHtml(code);
+    }
     const languageClass = normalizedLanguage !== 'text' ? ` language-${normalizedLanguage}` : ' language-text';
     const languageLabel = getMarkdownLanguageLabel(normalizedLanguage);
     const highlightedCode = highlightMarkdownCode(code, normalizedLanguage);
@@ -401,6 +423,153 @@ function fallbackRenderMarkdownHtml(md) {
     return htmlParts.join('');
 }
 
+const MARKDOWN_CALLOUT_META = {
+    note: { label: 'Note', icon: '📝' },
+    tip: { label: 'Tip', icon: '💡' },
+    important: { label: 'Important', icon: '❗' },
+    warning: { label: 'Warning', icon: '⚠️' },
+    caution: { label: 'Caution', icon: '🚨' },
+};
+
+function enhanceMarkdownCalloutBlockquotes(sanitizedFragment) {
+    sanitizedFragment.querySelectorAll('blockquote').forEach((blockquote) => {
+        const firstChild = blockquote.firstElementChild;
+        if (!firstChild || firstChild.tagName !== 'P') {
+            return;
+        }
+
+        const firstTextNode = Array.from(firstChild.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && String(node.textContent || '').trim());
+        if (!firstTextNode) {
+            return;
+        }
+
+        const originalText = String(firstTextNode.textContent || '');
+        const match = originalText.match(/^\s*\[!([A-Z]+)\]\s*(.*)$/);
+        if (!match) {
+            return;
+        }
+
+        const calloutType = String(match[1] || '').trim().toLowerCase();
+        const calloutMeta = MARKDOWN_CALLOUT_META[calloutType];
+        if (!calloutMeta) {
+            return;
+        }
+
+        const inlineTitle = String(match[2] || '').trim();
+        blockquote.classList.add('notification-md-callout', `is-${calloutType}`);
+
+        const header = document.createElement('div');
+        header.className = 'notification-md-callout-header';
+
+        const icon = document.createElement('span');
+        icon.className = 'notification-md-callout-icon';
+        icon.textContent = calloutMeta.icon;
+        header.appendChild(icon);
+
+        const title = document.createElement('span');
+        title.className = 'notification-md-callout-title';
+        title.textContent = inlineTitle || calloutMeta.label;
+        header.appendChild(title);
+
+        const nextText = originalText.replace(match[0], '').trimStart();
+        if (nextText) {
+            firstTextNode.textContent = nextText;
+        } else {
+            firstTextNode.parentNode.removeChild(firstTextNode);
+        }
+
+        if (!firstChild.childNodes.length) {
+            firstChild.remove();
+        }
+
+        blockquote.insertBefore(header, blockquote.firstChild || null);
+    });
+}
+
+function enhanceMarkdownFragment(sanitizedFragment) {
+    sanitizedFragment.querySelectorAll('a[href]').forEach((link) => {
+        const href = String(link.getAttribute('href') || '').trim();
+        // 二次校验链接协议，即使 marked 解析出 <a>，也不允许危险 href 流入最终 DOM。
+        if (!/^https?:\/\//i.test(href) && !href.startsWith('/') && !href.startsWith('#')) {
+            link.setAttribute('href', '#');
+        }
+        link.setAttribute('target', '_blank');
+        link.setAttribute('rel', 'noopener noreferrer');
+    });
+
+    sanitizedFragment.querySelectorAll('img[src]').forEach((img) => {
+        const safeSrc = getSafeMarkdownImageSrc(img.getAttribute('src'));
+        if (!safeSrc) {
+            img.remove();
+            return;
+        }
+        img.setAttribute('src', safeSrc);
+        img.setAttribute('loading', 'lazy');
+        img.setAttribute('decoding', 'async');
+        img.setAttribute('referrerpolicy', 'no-referrer');
+    });
+
+    sanitizedFragment.querySelectorAll('table').forEach((table) => {
+        // 自动为表格包一层横向滚动容器，避免窄屏下表格把布局撑爆。
+        if (!table.parentElement || !table.parentElement.classList.contains('notification-md-table-wrap')) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'notification-md-table-wrap';
+            table.parentNode.insertBefore(wrapper, table);
+            wrapper.appendChild(table);
+        }
+    });
+
+    enhanceMarkdownCalloutBlockquotes(sanitizedFragment);
+
+    sanitizedFragment.querySelectorAll('details').forEach((detailsEl) => {
+        detailsEl.classList.add('notification-md-details');
+        const firstSummary = Array.from(detailsEl.children).find((child) => child.tagName === 'SUMMARY');
+        if (firstSummary) {
+            firstSummary.classList.add('notification-md-summary');
+        } else {
+            const summary = document.createElement('summary');
+            summary.className = 'notification-md-summary';
+            summary.textContent = '展开详情';
+            detailsEl.insertBefore(summary, detailsEl.firstChild || null);
+        }
+    });
+
+    sanitizedFragment.querySelectorAll('pre > code').forEach((codeEl) => {
+        const originalClass = String(codeEl.getAttribute('class') || '');
+        const languageMatch = originalClass.match(/language-([a-z0-9_-]+)/i);
+        const language = normalizeMarkdownLanguageName(languageMatch ? languageMatch[1] : 'text');
+        const rawCodeText = codeEl.textContent || '';
+        const pre = codeEl.parentElement;
+
+        if (language === 'mermaid') {
+            const mermaidWrapper = document.createElement('div');
+            mermaidWrapper.innerHTML = buildMarkdownMermaidBlockHtml(rawCodeText);
+            pre.parentNode.replaceChild(mermaidWrapper.firstElementChild, pre);
+            return;
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.className = `notification-md-code-block language-${language}`;
+        wrapper.setAttribute('data-language', language);
+
+        const header = document.createElement('div');
+        header.className = 'notification-md-code-header';
+
+        const langChip = document.createElement('span');
+        langChip.className = 'notification-md-code-lang';
+        langChip.textContent = getMarkdownLanguageLabel(language);
+        header.appendChild(langChip);
+
+        // 把代码内容替换为轻量高亮结果，同时保留原本 <pre><code> 结构供样式复用。
+        codeEl.className = `language-${language}`;
+        codeEl.innerHTML = highlightMarkdownCode(rawCodeText, language);
+
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(header);
+        wrapper.appendChild(pre);
+    });
+}
+
 function renderMarkdownToHtml(content) {
     const normalized = normalizeMarkdownContent(content);
 
@@ -422,65 +591,7 @@ function renderMarkdownToHtml(content) {
 
             const rawHtml = parseMarkdown(normalized);
             const sanitizedFragment = DOMPurify.sanitize(rawHtml, MARKDOWN_SANITIZE_OPTIONS);
-
-            sanitizedFragment.querySelectorAll('a[href]').forEach((link) => {
-                const href = String(link.getAttribute('href') || '').trim();
-                // 二次校验链接协议，即使 marked 解析出 <a>，也不允许危险 href 流入最终 DOM。
-                if (!/^https?:\/\//i.test(href) && !href.startsWith('/') && !href.startsWith('#')) {
-                    link.setAttribute('href', '#');
-                }
-                link.setAttribute('target', '_blank');
-                link.setAttribute('rel', 'noopener noreferrer');
-            });
-
-            sanitizedFragment.querySelectorAll('img[src]').forEach((img) => {
-                const safeSrc = getSafeMarkdownImageSrc(img.getAttribute('src'));
-                if (!safeSrc) {
-                    img.remove();
-                    return;
-                }
-                img.setAttribute('src', safeSrc);
-                img.setAttribute('loading', 'lazy');
-                img.setAttribute('decoding', 'async');
-                img.setAttribute('referrerpolicy', 'no-referrer');
-            });
-
-            sanitizedFragment.querySelectorAll('table').forEach((table) => {
-                // 自动为表格包一层横向滚动容器，避免窄屏下表格把布局撑爆。
-                if (!table.parentElement || !table.parentElement.classList.contains('notification-md-table-wrap')) {
-                    const wrapper = document.createElement('div');
-                    wrapper.className = 'notification-md-table-wrap';
-                    table.parentNode.insertBefore(wrapper, table);
-                    wrapper.appendChild(table);
-                }
-            });
-
-            sanitizedFragment.querySelectorAll('pre > code').forEach((codeEl) => {
-                const originalClass = String(codeEl.getAttribute('class') || '');
-                const languageMatch = originalClass.match(/language-([a-z0-9_-]+)/i);
-                const language = normalizeMarkdownLanguageName(languageMatch ? languageMatch[1] : 'text');
-                const rawCodeText = codeEl.textContent || '';
-                const wrapper = document.createElement('div');
-                wrapper.className = `notification-md-code-block language-${language}`;
-                wrapper.setAttribute('data-language', language);
-
-                const header = document.createElement('div');
-                header.className = 'notification-md-code-header';
-
-                const langChip = document.createElement('span');
-                langChip.className = 'notification-md-code-lang';
-                langChip.textContent = getMarkdownLanguageLabel(language);
-                header.appendChild(langChip);
-
-                const pre = codeEl.parentElement;
-                // 把代码内容替换为轻量高亮结果，同时保留原本 <pre><code> 结构供样式复用。
-                codeEl.className = `language-${language}`;
-                codeEl.innerHTML = highlightMarkdownCode(rawCodeText, language);
-
-                pre.parentNode.insertBefore(wrapper, pre);
-                wrapper.appendChild(header);
-                wrapper.appendChild(pre);
-            });
+            enhanceMarkdownFragment(sanitizedFragment);
 
             const container = document.createElement('div');
             container.appendChild(sanitizedFragment);
