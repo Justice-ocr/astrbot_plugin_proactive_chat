@@ -23,7 +23,7 @@
 > 例如：如果你之前在**私聊**列表中填写的是 `123456789`，自定义的机器人名称 (平台名称) 为 `default`，请改为 `default:FriendMessage:123456789`。
 > 如果你之前在**群聊**列表中填写的是 `987654321`，自定义的机器人名称 (平台名称) 为 `default`，请改为 `default:GroupMessage:987654321`。
 >
-> 使用 QQ 官机时，注意不要像个人号那样填写 QQ 号，应填写 UID，可使用指令 `/sid` 获取，格式类似 `1A2B3D4C5E6F9F8E7D6C5B4A321`。
+> 使用 QQ 官机时，注意不要像个人号那样填写 QQ 号，应填写 UID，可使用指令 `/sid` 获取，格式类似 `4C011A2B3D4C5E6F9F8E7D6C5B4A3210`。
 >
 > 使用个人微信需要升级到最新的手机微信版本：`iOS >= 8.0.70`，`Android >= 8.0.69`，并确保微信中包含 `ClawBot` 插件
 >
@@ -73,12 +73,12 @@
 - @dependabot[bot] made their first contribution in #34
 - @openai-codex[bot] made their first contribution in #34
 - @roomote made their first contribution in #36
+- @kilo-code-bot[bot] made their first contribution in #36
 - @gemini-code-assist[bot] made their first contribution in #36
 - @claude made their first contribution in #37
 - @Aloys233 made their first contribution in #40
 - @codex made their first contribution in #43
 - @Alaye-Dong made their first contribution in #47
-- @kilo-code-bot[bot] made their first contribution in #47
 
 **Full Changelog**: https://github.com/DBJD-CR/astrbot_plugin_proactive_chat/compare/v1.1.5...v1.2.0
 

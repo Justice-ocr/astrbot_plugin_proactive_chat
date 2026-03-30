@@ -127,9 +127,9 @@ If you want your AI companion to feel more emotionally present, or simply want y
 > [!TIP]
 > Project development statistics (continuously updated):
 >
-> Development period: 58 days total (main plugin only)
+> Development period: 59 days total (main plugin only)
 >
-> Total work time: approximately 293 hours (main plugin only)
+> Total work time: approximately 295 hours (main plugin only)
 >
 > Main models used for development: Gemini-2.5-Pro, Kimi For Coding, Gemini-3.0 Flash/Pro, GPT-5.3 & 5.4-Codex (with RooCode in VSCode)
 >
@@ -139,7 +139,7 @@ If you want your AI companion to feel more emotionally present, or simply want y
 >
 > Dialogue workspace: Chatbox 1.13.2, VSCode
 >
-> Tokens Used: 642,030,443
+> Tokens Used: 655,724,758
 
 ## 🌟 Features
 
@@ -231,7 +231,7 @@ Starting from `v1.2.0`, the plugin introduced a brand-new, fully featured WebUI 
 
 > [!NOTE]
 >
-> When using a QQ Official Bot, do not enter the QQ number like you would for a personal account. Use the UID instead. You can obtain it with the `/sid` command. The format looks like `1A2B3D4C5E6F9F8E7D6C5B4A321`.
+> When using a QQ Official Bot, do not enter the QQ number like you would for a personal account. Use the UID instead. You can obtain it with the `/sid` command. The format looks like `4C011A2B3D4C5E6F9F8E7D6C5B4A3210`.
 >
 > Personal WeChat requires the latest mobile WeChat version: iOS >= 8.0.70, Android >= 8.0.69, and the ClawBot plugin must be present in WeChat.
 
@@ -1429,7 +1429,7 @@ For more historical release details, see the changelog: [CHANGELOG](https://gith
 
 > **A**: For QQ Official Bot proactive messaging, please use AstrBot `v4.22.1` or newer.
 >
-> When using a QQ Official Bot, do not fill in the QQ number as if it were a personal account. Use the UID instead. You can obtain it via `/sid`, in a format like `1A2B3D4C5E6F9F8E7D6C5B4A`.
+> When using a QQ Official Bot, do not fill in the QQ number as if it were a personal account. Use the UID instead. You can obtain it via `/sid`, in a format like `4C011A2B3D4C5E6F9F8E7D6C5B4A3210`.
 
 **Q: Why is the proactive trigger time inaccurate?**
 

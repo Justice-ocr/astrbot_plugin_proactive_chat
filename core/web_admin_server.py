@@ -641,7 +641,20 @@ class WebAdminServer:
                 while True:
                     # 前端只需发送轻量消息：ping 保活、refresh 主动请求全量刷新。
                     data = await websocket.receive_text()
-                    msg = json.loads(data)
+                    try:
+                        msg = json.loads(data)
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        logger.debug(
+                            f"[主动消息] WebSocket 收到无效 JSON 数据喵: {str(data)[:100]}"
+                        )
+                        continue
+
+                    if not isinstance(msg, dict):
+                        logger.debug(
+                            "[主动消息] WebSocket 收到的 JSON 不是对象，已忽略喵。"
+                        )
+                        continue
+
                     msg_type = msg.get("type")
                     if msg_type == "ping":
                         await websocket.send_json({"type": "pong"})
