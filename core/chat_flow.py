@@ -41,20 +41,21 @@ class ProactiveCoreMixin:
             except Exception as e:
                 logger.debug(f"[主动消息] 广播手动触发状态更新失败喵: {e}")
 
-    async def _is_chat_allowed(self, session_id: str) -> bool:
-        """检查是否允许进行主动聊天（条件检查）。"""
+    async def _is_chat_allowed(self, session_id: str) -> tuple[bool, str]:
+        """检查是否允许进行主动聊天，并返回阻断原因。"""
         session_config = self._get_session_config(session_id)
         # 会话未配置或已禁用时，直接阻止本轮主动消息
-        if not session_config or not session_config.get("enable", False):
-            return False
+        if not session_config:
+            return False, "session_config_missing"
+        if not session_config.get("enable", False):
+            return False, "session_disabled"
 
         # 免打扰时段判断
         schedule_conf = session_config.get("schedule_settings", {})
         if is_quiet_time(schedule_conf.get("quiet_hours", "1-7"), self.timezone):
-            logger.info("[主动消息] 当前为免打扰时段喵。")
-            return False
+            return False, "quiet_hours"
 
-        return True
+        return True, "allowed"
 
     async def _finalize_and_reschedule(
         self,
@@ -143,8 +144,24 @@ class ProactiveCoreMixin:
         normalized_session_id = self._normalize_session_id(session_id)
         try:
             # 免打扰与启用状态检查
-            if not await self._is_chat_allowed(normalized_session_id):
-                logger.info("[主动消息] 当前为免打扰时段，跳过并重新调度喵。")
+            is_allowed, block_reason = await self._is_chat_allowed(
+                normalized_session_id
+            )
+            if not is_allowed:
+                if block_reason == "quiet_hours":
+                    logger.info("[主动消息] 当前为免打扰时段，跳过并重新调度喵。")
+                elif block_reason == "session_disabled":
+                    logger.info(
+                        f"[主动消息] {self._get_session_log_str(normalized_session_id)} 已被禁用，跳过并重新调度喵。"
+                    )
+                elif block_reason == "session_config_missing":
+                    logger.info(
+                        f"[主动消息] {self._get_session_log_str(normalized_session_id)} 未命中有效会话配置，跳过并重新调度喵。"
+                    )
+                else:
+                    logger.info(
+                        f"[主动消息] {self._get_session_log_str(normalized_session_id)} 当前不满足触发条件（原因: {block_reason}），跳过并重新调度喵。"
+                    )
                 await self._schedule_next_chat_and_save(normalized_session_id)
                 return
 
