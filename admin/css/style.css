@@ -336,6 +336,82 @@ body.dark-theme .boot-loader__progress-bar {
     100% { transform: translate3d(220%, 0, 0) scaleX(0.35); }
 }
 
+.boot-login {
+    display: none;
+    width: min(360px, calc(100vw - 48px));
+    margin: 16px auto 0;
+    text-align: left;
+}
+
+.boot-login__label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #625B71;
+}
+
+.boot-login__input {
+    width: 100%;
+    box-sizing: border-box;
+    height: 44px;
+    padding: 0 14px;
+    border: 1px solid rgba(103, 80, 164, 0.22);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.88);
+    color: #1C1B1F;
+    outline: none;
+    font-size: 14px;
+    box-shadow: 0 8px 24px rgba(103, 80, 164, 0.08);
+}
+
+.boot-login__input:focus {
+    border-color: rgba(103, 80, 164, 0.5);
+    box-shadow: 0 0 0 3px rgba(103, 80, 164, 0.12), 0 8px 24px rgba(103, 80, 164, 0.08);
+}
+
+.boot-login__button {
+    width: 100%;
+    margin-top: 12px;
+    height: 44px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #7F67BE 0%, #6750A4 100%);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(103, 80, 164, 0.22);
+}
+
+.boot-login__button:disabled {
+    cursor: not-allowed;
+}
+
+html.theme-dark .boot-login__label,
+body.dark-theme .boot-login__label {
+    color: #CAC4D0;
+}
+
+html.theme-dark .boot-login__input,
+body.dark-theme .boot-login__input {
+    background: rgba(28, 27, 31, 0.88);
+    color: #E6E1E5;
+    border-color: rgba(208, 188, 255, 0.22);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+
+html.theme-dark .boot-login__input:focus,
+body.dark-theme .boot-login__input:focus {
+    border-color: rgba(208, 188, 255, 0.48);
+    box-shadow: 0 0 0 3px rgba(208, 188, 255, 0.16), 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+
+html.theme-dark .boot-login__button,
+body.dark-theme .boot-login__button {
+    background: linear-gradient(135deg, #A58CFF 0%, #7F67BE 100%);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
 /* ===== 通用材质与布局骨架 ===== */
 /* 磨砂玻璃效果 */
 .glass {
