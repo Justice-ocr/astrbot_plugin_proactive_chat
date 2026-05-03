@@ -7,6 +7,7 @@ import math
 import random
 import re
 import traceback
+from pathlib import Path
 from typing import Any
 
 from astrbot.api import logger
@@ -27,6 +28,13 @@ try:
 except ImportError:
     from astrbot.core.platform.message_session import MessageSession as MS
 
+try:
+    from astrbot.core.platform.sources.webchat.message_parts_helper import (
+        message_chain_to_storage_message_parts,
+    )
+except ImportError:
+    message_chain_to_storage_message_parts = None
+
 
 class SenderMixin:
     """发送与装饰钩子混入类。"""
@@ -34,6 +42,7 @@ class SenderMixin:
     context: Any
     session_data: dict
     telemetry: Any
+    data_dir: Any
 
     def _split_text(self, text: str, settings: dict) -> list[str]:
         """根据配置对文本进行分段。"""
@@ -247,6 +256,49 @@ class SenderMixin:
             return res.chain if res.chain is not None else []
         return chain
 
+    async def _persist_proactive_message_to_platform_history(
+        self,
+        session_id: str,
+        chain: MessageChain,
+    ) -> None:
+        """将主动消息补写入平台消息流水，弥补部分适配器不会自动持久化的问题。"""
+        parsed = self._parse_session_id(session_id)
+        if not parsed:
+            return
+
+        platform_id, _message_type, target_id = parsed
+        history_mgr = getattr(self.context, "message_history_manager", None)
+        if not history_mgr or message_chain_to_storage_message_parts is None:
+            return
+
+        try:
+            db = getattr(history_mgr, "db", None)
+            insert_attachment = getattr(db, "insert_attachment", None)
+            if not callable(insert_attachment):
+                return
+
+            attachments_dir = Path(self.data_dir) / "attachments"
+            message_parts = await message_chain_to_storage_message_parts(
+                chain,
+                insert_attachment=insert_attachment,
+                attachments_dir=attachments_dir,
+            )
+            if not message_parts:
+                return
+
+            await history_mgr.insert(
+                platform_id=platform_id,
+                user_id=target_id,
+                content={"type": "bot", "message": message_parts},
+                sender_id="bot",
+                sender_name="bot",
+            )
+            logger.debug(
+                f"[主动消息] 已将主动消息补写入平台 ({platform_id}) 的流水喵，会话标识为 {target_id}。"
+            )
+        except Exception as e:
+            logger.warning(f"[主动消息] 补写平台流水失败喵: {e}", exc_info=True)
+
     async def _send_chain_with_hooks(self, session_id: str, components: list) -> None:
         """发送消息链（含装饰钩子）。"""
         processed_chain_list = await self._trigger_decorating_hooks(
@@ -261,6 +313,7 @@ class SenderMixin:
         if not parsed:
             # 无法解析则使用核心 API 兜底
             await self.context.send_message(session_id, chain)
+            await self._persist_proactive_message_to_platform_history(session_id, chain)
             return
 
         p_id, m_type_str, t_id = parsed
@@ -279,6 +332,7 @@ class SenderMixin:
                 f"[主动消息] 找不到指定的平台 {p_id} 喵，尝试使用核心 API 兜底喵。"
             )
             await self.context.send_message(session_id, chain)
+            await self._persist_proactive_message_to_platform_history(session_id, chain)
             return
 
         if target_platform.status != PlatformStatus.RUNNING:
@@ -289,6 +343,10 @@ class SenderMixin:
             session_obj = MS(platform_name=p_id, message_type=m_type, session_id=t_id)
             await target_platform.send_by_session(session_obj, chain)
             logger.debug(f"[主动消息] 消息将通过平台 {p_id} 送达喵")
+            if p_id != "webchat":
+                await self._persist_proactive_message_to_platform_history(
+                    session_id, chain
+                )
         except Exception as e:
             logger.error(f"[主动消息] 通过平台 {p_id} 发送失败喵: {e}")
             logger.debug(traceback.format_exc())
@@ -328,8 +386,8 @@ class SenderMixin:
                 if tts_provider:
                     audio_path = await tts_provider.get_audio(text)
                     if audio_path:
-                        await self.context.send_message(
-                            session_id, MessageChain([Record(file=audio_path)])
+                        await self._send_chain_with_hooks(
+                            session_id, [Record(file=audio_path)]
                         )
                         is_tts_sent = True
                         await asyncio.sleep(0.5)
