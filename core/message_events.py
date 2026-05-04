@@ -56,7 +56,9 @@ class EventsMixin:
                 ] = current_time
 
         # 取消自动触发：同时处理原键与规范化键，避免漏取消
-        auto_trigger_cancelled = await self._cancel_all_related_auto_triggers(session_id)
+        auto_trigger_cancelled = await self._cancel_all_related_auto_triggers(
+            session_id
+        )
         if normalized_session_id != session_id:
             normalized_cancelled = await self._cancel_all_related_auto_triggers(
                 normalized_session_id
@@ -187,7 +189,9 @@ class EventsMixin:
                 )
 
         # 取消自动触发
-        auto_trigger_cancelled = await self._cancel_all_related_auto_triggers(session_id)
+        auto_trigger_cancelled = await self._cancel_all_related_auto_triggers(
+            session_id
+        )
         if normalized_session_id != session_id:
             normalized_cancelled = await self._cancel_all_related_auto_triggers(
                 normalized_session_id
