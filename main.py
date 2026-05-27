@@ -136,6 +136,16 @@ class ProactiveChatPlugin(
 
         self._telemetry_tasks.clear()
 
+    async def _deferred_startup_telemetry(self) -> None:
+        """错开上报 startup 与 config 事件，避免并发请求触发服务端限流。"""
+        try:
+            await self.telemetry.track_startup()
+            # 间隔 2 秒再发第二个事件，降低被服务端判定为突发流量的概率。
+            await asyncio.sleep(2)
+            await self.telemetry.track_config(dict(self.config))
+        except Exception as e:
+            logger.debug(f"[主动消息] 启动遥测上报失败喵: {e}")
+
     async def _heartbeat_loop(self) -> None:
         """遥测心跳循环。"""
         # 心跳间隔沿用参考插件的 12 小时策略，既能观测活跃安装量，又不会过于频繁。

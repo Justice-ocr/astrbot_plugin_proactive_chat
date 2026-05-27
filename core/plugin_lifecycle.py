@@ -98,12 +98,8 @@ class LifecycleMixin:
             loop.set_exception_handler(self._handle_asyncio_exception)
             self._exception_handler_installed = True
             self._start_time = time.monotonic()
-            # 启动阶段立即上报一次 startup，便于统计活跃安装量与运行环境分布。
-            self._track_task(asyncio.create_task(self.telemetry.track_startup()))
-            # 同时上报一次经脱敏后的配置快照，用于分析默认值与用户配置趋势。
-            self._track_task(
-                asyncio.create_task(self.telemetry.track_config(dict(self.config)))
-            )
+            # 启动阶段上报 startup + config，通过延迟错开避免同时请求触发服务端限流。
+            self._track_task(asyncio.create_task(self._deferred_startup_telemetry()))
             # 心跳任务用于长期运行实例的活跃度统计，与启动事件互补。
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             logger.debug("[主动消息] 已启动遥测心跳任务喵。")

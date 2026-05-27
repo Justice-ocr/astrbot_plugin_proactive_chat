@@ -7,6 +7,7 @@ import base64
 import copy
 import platform
 import re
+import time
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -43,6 +44,9 @@ class TelemetryManager:
         r'(?is)("?(?:proactive_prompt|system_prompt|prompt)"?\s*[:=]\s*)(.+?)(?=,\s*"?[A-Za-z0-9_]+"?\s*[:=]|\}|\]|$)'
     )
 
+    # 收到 429 后的静默冷却时长（秒），期间所有遥测请求直接跳过，避免持续轰炸服务端。
+    _RATE_LIMIT_COOLDOWN = 300
+
     def __init__(self, config: dict[str, Any], plugin_version: str = "unknown") -> None:
         # 保留原始配置引用，方便后续在需要时提取配置快照或扩展更多上下文字段。
         self._config = config
@@ -57,6 +61,8 @@ class TelemetryManager:
         self._session: aiohttp.ClientSession | None = None
         # 当前先固定为 production，后续若接入测试环境可在这里扩展切换。
         self._env = "production"
+        # 熔断器：记录上次收到 429 的单调时间戳，冷却期内跳过所有请求。
+        self._rate_limited_until: float = 0.0
         # AstrBot 版本在启动时一并上报，便于区分宿主版本差异带来的兼容性问题。
         self._astrbot_version_info = get_astrbot_version_info()
         self._astrbot_version = self._astrbot_version_info.version
@@ -98,14 +104,19 @@ class TelemetryManager:
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建 HTTP 会话。"""
         if self._session is None or self._session.closed:
-            # 遥测必须是 best-effort，因此总超时设置得比较短，避免卡住主业务。
-            timeout = aiohttp.ClientTimeout(total=10)
+            # 遥测必须是 best-effort，超时设短以免拖慢主业务事件循环。
+            timeout = aiohttp.ClientTimeout(total=5)
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
 
     async def track(self, event_name: str, data: dict[str, Any] | None = None) -> bool:
         """发送遥测事件。"""
         if not self._enabled:
+            return False
+
+        # 熔断器检查：冷却期内直接跳过，避免持续向已限流的服务端发送无效请求。
+        now = time.monotonic()
+        if now < self._rate_limited_until:
             return False
 
         # 服务端 ingest API 采用 batch 结构，这里即使单次只发一条，也统一按 batch 协议封装。
@@ -143,7 +154,11 @@ class TelemetryManager:
                     logger.warning("[主动消息] 遥测 App Key 无效或项目已禁用喵。")
                     return False
                 if response.status == 429:
-                    logger.warning("[主动消息] 遥测请求频率超限喵。")
+                    # 触发熔断：在冷却期结束前，所有后续遥测请求将被静默跳过。
+                    self._rate_limited_until = now + self._RATE_LIMIT_COOLDOWN
+                    logger.warning(
+                        f"[主动消息] 遥测请求频率超限喵，将静默 {self._RATE_LIMIT_COOLDOWN} 秒。"
+                    )
                     return False
                 logger.debug(f"[主动消息] 遥测事件发送失败喵: HTTP {response.status}")
                 return False
@@ -151,7 +166,9 @@ class TelemetryManager:
             logger.debug("[主动消息] 遥测请求超时喵。")
             return False
         except aiohttp.ClientConnectionError as e:
-            logger.debug(f"[主动消息] 遥测连接失败喵: {e}")
+            # 连接失败也触发短暂熔断（60秒），避免网络不可达时反复尝试拖慢事件循环。
+            self._rate_limited_until = now + 60
+            logger.debug(f"[主动消息] 遥测连接失败喵，静默 60 秒: {e}")
             return False
         except aiohttp.ClientPayloadError as e:
             logger.debug(f"[主动消息] 遥测数据负载错误喵: {e}")
