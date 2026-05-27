@@ -10,6 +10,7 @@ import re
 import time
 import traceback
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -44,8 +45,18 @@ class TelemetryManager:
         r'(?is)("?(?:proactive_prompt|system_prompt|prompt)"?\s*[:=]\s*)(.+?)(?=,\s*"?[A-Za-z0-9_]+"?\s*[:=]|\}|\]|$)'
     )
 
-    # 收到 429 后的静默冷却时长（秒），期间所有遥测请求直接跳过，避免持续轰炸服务端。
+    # 收到 429 后的静默冷却时长（秒），期间新事件转入 backlog 而非直接丢弃。
     _RATE_LIMIT_COOLDOWN = 300
+    # 恢复同步时每批最多发送的事件数。
+    _DRAIN_BATCH_SIZE = 10
+    # 恢复同步时每批之间的间隔（秒）。
+    _DRAIN_INTERVAL = 5
+    # backlog 最大容量，超出时丢弃最旧的事件。
+    _BACKLOG_MAX_SIZE = 200
+    # feature 事件弹性打包：攒满此数量立即 flush。
+    _FLUSH_THRESHOLD = 5
+    # feature 事件弹性打包：首条事件进入 buffer 后最多等待此秒数再 flush。
+    _FLUSH_TIMEOUT = 15
 
     def __init__(self, config: dict[str, Any], plugin_version: str = "unknown") -> None:
         # 保留原始配置引用，方便后续在需要时提取配置快照或扩展更多上下文字段。
@@ -63,6 +74,14 @@ class TelemetryManager:
         self._env = "production"
         # 熔断器：记录上次收到 429 的单调时间戳，冷却期内跳过所有请求。
         self._rate_limited_until: float = 0.0
+        # feature 事件弹性打包缓冲区：track_feature 只往这里追加，由阈值或超时触发 flush。
+        self._feature_buffer: list[dict] = []
+        # 超时 flush 任务：首条事件入 buffer 时启动，到期后强制 flush。
+        self._flush_timer_task: asyncio.Task[None] | None = None
+        # 熔断期间的事件积压队列，恢复后低频逐批同步。maxlen 防止内存无限增长。
+        self._backlog: deque[dict] = deque(maxlen=self._BACKLOG_MAX_SIZE)
+        # 恢复同步后台任务的引用，确保同一时刻只有一个 drain 在运行。
+        self._drain_task: asyncio.Task[None] | None = None
         # AstrBot 版本在启动时一并上报，便于区分宿主版本差异带来的兼容性问题。
         self._astrbot_version_info = get_astrbot_version_info()
         self._astrbot_version = self._astrbot_version_info.version
@@ -110,34 +129,51 @@ class TelemetryManager:
         return self._session
 
     async def track(self, event_name: str, data: dict[str, Any] | None = None) -> bool:
-        """发送遥测事件。"""
+        """发送遥测事件（startup/shutdown/heartbeat/config 等非 feature 类事件）。"""
         if not self._enabled:
             return False
 
-        # 熔断器检查：冷却期内直接跳过，避免持续向已限流的服务端发送无效请求。
+        event = {
+            "event": event_name,
+            "data": data or {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # 熔断期间：非 feature 事件也存入 backlog，恢复后统一补发。
         now = time.monotonic()
         if now < self._rate_limited_until:
+            self._backlog.append(event)
+            return True
+
+        return await self._send_batch([event])
+
+    async def _send_batch(self, events: list[dict]) -> bool:
+        """将一批事件打包发送到服务端。
+
+        这是所有遥测发送的统一出口。支持单条或多条事件，服务端 ingest API
+        原生支持 batch 数组结构，无需额外适配。
+
+        返回 True 表示发送成功，False 表示失败（已触发熔断或网络异常）。
+        失败时事件会被转入 backlog 等待恢复后补发。
+        """
+        if not events:
+            return True
+
+        now = time.monotonic()
+        # 再次检查熔断状态（可能在 end_flow 调用时已经进入熔断）。
+        if now < self._rate_limited_until:
+            self._backlog.extend(events)
             return False
 
-        # 服务端 ingest API 采用 batch 结构，这里即使单次只发一条，也统一按 batch 协议封装。
         payload = {
             "instance_id": self._instance_id,
             "version": self._plugin_version,
             "env": self._env,
-            "batch": [
-                {
-                    "event": event_name,
-                    # 事件数据必须由上层先完成脱敏与裁剪；发送层只负责透传。
-                    "data": data or {},
-                    # 统一使用 UTC ISO 时间，便于服务端直接聚合与排序。
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            ],
+            "batch": events,
         }
 
         try:
             session = await self._get_session()
-            # App Key 通过请求头发送，避免混入事件 data 字段而被误统计或误暴露。
             headers = {
                 "Content-Type": "application/json",
                 "X-App-Key": self._APP_KEY,
@@ -148,16 +184,22 @@ class TelemetryManager:
                 headers=headers,
             ) as response:
                 if response.status == 200:
-                    logger.debug(f"[主动消息] 遥测事件 '{event_name}' 发送成功喵。")
+                    logger.debug(
+                        f"[主动消息] 遥测批次发送成功喵（{len(events)} 条事件）。"
+                    )
+                    # 发送成功后检查是否有积压需要启动低频同步。
+                    self._maybe_start_drain()
                     return True
                 if response.status == 401:
                     logger.warning("[主动消息] 遥测 App Key 无效或项目已禁用喵。")
                     return False
                 if response.status == 429:
-                    # 触发熔断：在冷却期结束前，所有后续遥测请求将被静默跳过。
+                    # 触发熔断，当前批次事件转入 backlog 等待恢复后补发。
                     self._rate_limited_until = now + self._RATE_LIMIT_COOLDOWN
+                    self._backlog.extend(events)
                     logger.warning(
-                        f"[主动消息] 遥测请求频率超限喵，将静默 {self._RATE_LIMIT_COOLDOWN} 秒。"
+                        f"[主动消息] 遥测请求频率超限喵，将静默 {self._RATE_LIMIT_COOLDOWN} 秒，"
+                        f"{len(events)} 条事件已缓冲。"
                     )
                     return False
                 logger.debug(f"[主动消息] 遥测事件发送失败喵: HTTP {response.status}")
@@ -166,9 +208,12 @@ class TelemetryManager:
             logger.debug("[主动消息] 遥测请求超时喵。")
             return False
         except aiohttp.ClientConnectionError as e:
-            # 连接失败也触发短暂熔断（60秒），避免网络不可达时反复尝试拖慢事件循环。
+            # 连接失败触发短暂熔断（60秒），事件转入 backlog。
             self._rate_limited_until = now + 60
-            logger.debug(f"[主动消息] 遥测连接失败喵，静默 60 秒: {e}")
+            self._backlog.extend(events)
+            logger.debug(
+                f"[主动消息] 遥测连接失败喵，静默 60 秒，{len(events)} 条事件已缓冲: {e}"
+            )
             return False
         except aiohttp.ClientPayloadError as e:
             logger.debug(f"[主动消息] 遥测数据负载错误喵: {e}")
@@ -179,6 +224,88 @@ class TelemetryManager:
         except Exception as e:
             logger.debug(f"[主动消息] 遥测未知错误喵: {e}")
             return False
+
+    # ─── 弹性打包（feature 事件专用）────────────────────────────────────
+
+    async def _flush_feature_buffer(self) -> None:
+        """将 feature 缓冲区中的事件打包发送。
+
+        由阈值触发（攒满 _FLUSH_THRESHOLD 条）或超时触发（_FLUSH_TIMEOUT 秒）调用。
+        如果当前处于熔断状态，事件会整批转入 backlog 等待恢复后补发。
+        """
+        if not self._feature_buffer:
+            return
+        events = self._feature_buffer
+        self._feature_buffer = []
+        # 取消可能还在等待的超时任务（阈值触发时超时还没到）。
+        self._cancel_flush_timer()
+        await self._send_batch(events)
+
+    async def _flush_timer_expired(self) -> None:
+        """超时回调：_FLUSH_TIMEOUT 秒内未攒满阈值，强制 flush 当前 buffer。"""
+        try:
+            await asyncio.sleep(self._FLUSH_TIMEOUT)
+            await self._flush_feature_buffer()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._flush_timer_task = None
+
+    def _cancel_flush_timer(self) -> None:
+        """取消正在等待的超时 flush 任务。"""
+        if self._flush_timer_task and not self._flush_timer_task.done():
+            self._flush_timer_task.cancel()
+            self._flush_timer_task = None
+
+    def _ensure_flush_timer(self) -> None:
+        """确保超时 flush 任务正在运行（首条事件入 buffer 时启动）。"""
+        if self._flush_timer_task is None or self._flush_timer_task.done():
+            self._flush_timer_task = asyncio.create_task(self._flush_timer_expired())
+
+    # ─── 恢复同步（drain）──────────────────────────────────────────────
+
+    def _maybe_start_drain(self) -> None:
+        """检查是否有积压事件需要低频同步，若有则启动后台 drain 任务。
+
+        仅在 _send_batch 成功后调用，确保网络已恢复可用。
+        同一时刻只允许一个 drain 任务运行，避免并发发送再次触发限流。
+        """
+        if not self._backlog:
+            return
+        if self._drain_task is not None and not self._drain_task.done():
+            return
+        self._drain_task = asyncio.create_task(self._drain_backlog())
+
+    async def _drain_backlog(self) -> None:
+        """低频逐批发送积压事件。
+
+        每次从 backlog 头部取出最多 _DRAIN_BATCH_SIZE 条事件打包发送，
+        每批之间间隔 _DRAIN_INTERVAL 秒，避免恢复瞬间再次触发服务端限流。
+        若发送失败（再次被限流），立即停止 drain 并把未发出的事件放回队列。
+        """
+        try:
+            while self._backlog:
+                batch: list[dict] = []
+                for _ in range(min(self._DRAIN_BATCH_SIZE, len(self._backlog))):
+                    batch.append(self._backlog.popleft())
+
+                success = await self._send_batch(batch)
+                if not success:
+                    # 发送失败，把事件放回 backlog 头部，停止本轮 drain。
+                    for event in reversed(batch):
+                        self._backlog.appendleft(event)
+                    break
+
+                # 低频间隔，给服务端喘息空间。
+                await asyncio.sleep(self._DRAIN_INTERVAL)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug(f"[主动消息] 遥测积压同步异常喵: {e}")
+        finally:
+            self._drain_task = None
+
+    # ─── 公共上报接口 ─────────────────────────────────────────────────
 
     async def track_startup(self) -> bool:
         """上报启动事件。"""
@@ -219,10 +346,41 @@ class TelemetryManager:
     async def track_feature(
         self, feature_name: str, extra: dict[str, Any] | None = None
     ) -> bool:
-        """上报功能使用事件。"""
+        """上报功能使用事件（弹性打包）。
+
+        事件不会立即发送，而是追加到 _feature_buffer。满足以下任一条件时触发 flush：
+        - buffer 中事件数达到 _FLUSH_THRESHOLD（5 条）→ 立即打包发送
+        - 首条事件入 buffer 后超过 _FLUSH_TIMEOUT（15 秒）→ 超时强制发送
+
+        熔断期间事件直接存入 backlog，不进入 buffer。
+        """
+        if not self._enabled:
+            return False
+
         data = dict(extra or {})
         data["feature"] = feature_name
-        return await self.track("feature", data)
+        event = {
+            "event": "feature",
+            "data": data,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # 熔断期间：存入 backlog 等待恢复后补发，不进入 buffer。
+        if time.monotonic() < self._rate_limited_until:
+            self._backlog.append(event)
+            return True
+
+        # 追加到弹性缓冲区。
+        self._feature_buffer.append(event)
+
+        # 判断是否达到阈值：满了就立即 flush。
+        if len(self._feature_buffer) >= self._FLUSH_THRESHOLD:
+            await self._flush_feature_buffer()
+        else:
+            # 未满阈值：确保超时计时器在运行（首条事件时启动）。
+            self._ensure_flush_timer()
+
+        return True
 
     async def track_config(self, config: dict[str, Any]) -> bool:
         """上报配置快照，过滤敏感字段但保留统计型配置。"""
@@ -321,7 +479,33 @@ class TelemetryManager:
         return sanitized
 
     async def close(self) -> None:
-        """关闭遥测会话。"""
+        """关闭遥测会话，取消后台任务并尝试最后一次 flush 所有缓冲事件。"""
+        # 取消弹性打包的超时计时器，避免 close 后仍有定时回调尝试发送。
+        self._cancel_flush_timer()
+
+        # 先取消正在运行的低频同步任务，避免 close 后仍有后台网络请求。
+        if self._drain_task and not self._drain_task.done():
+            self._drain_task.cancel()
+            try:
+                await self._drain_task
+            except asyncio.CancelledError:
+                pass
+            self._drain_task = None
+
+        # 将 feature 弹性缓冲区中尚未发送的事件合并到 backlog，统一做最后一次 flush。
+        if self._feature_buffer:
+            self._backlog.extend(self._feature_buffer)
+            self._feature_buffer = []
+
+        # 尝试最后一次性发送 backlog 中的积压事件（best-effort，失败则丢弃）。
+        if self._backlog and self._session and not self._session.closed:
+            remaining = list(self._backlog)
+            self._backlog.clear()
+            try:
+                await self._send_batch(remaining)
+            except Exception:
+                pass
+
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
