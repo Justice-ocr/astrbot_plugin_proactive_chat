@@ -57,13 +57,72 @@
 
         // 通过 DOM API 创建 script 元素，兼容 CSP 且比 document.write 更可靠。
         var head = document.head || document.getElementsByTagName('head')[0];
+        window.__PROACTIVE_LIBS_COUNT = libs.length;
+        window.__PROACTIVE_LIBS_LOADED = 0;
+        window.__PROACTIVE_PENDING_SCRIPTS = [];
+
+        window.__PROACTIVE_TRIGGER_PENDING = function() {
+            if (window.__PROACTIVE_LIBS_LOADED < window.__PROACTIVE_LIBS_COUNT) {
+                return;
+            }
+            
+            // 当所有外部 CDN 依赖就绪后，串行执行队列里的脚本任务
+            if (window.__PROACTIVE_PENDING_SCRIPTS.length > 0) {
+                var task = window.__PROACTIVE_PENDING_SCRIPTS.shift();
+                task();
+            }
+        };
+
         for (var i = 0; i < libs.length; i++) {
             var s = document.createElement('script');
             s.src = base + libs[i];
-            s.defer = true;
+            s.async = false; // 强迫动态脚本按数组中的逻辑顺序同步下载并执行
             if (i < 2) s.crossOrigin = 'anonymous';
+            s.onload = s.onerror = function() {
+                window.__PROACTIVE_LIBS_LOADED++;
+                window.__PROACTIVE_TRIGGER_PENDING();
+            };
             head.appendChild(s);
         }
+
+        window.__PROACTIVE_QUEUE_SCRIPT = function(src, isBabel) {
+            window.__PROACTIVE_PENDING_SCRIPTS.push(function() {
+                if (isBabel) {
+                    // 如果是 Babel 编译的 JSX 脚本，直接通过 ajax/fetch 获取文本并使用 Babel 编译，
+                    // 彻底避开浏览器动态 script 节点对 text/babel 识别困难的问题。
+                    // 动态执行编译后的 js 代码
+                    fetch(src)
+                        .then(function(res) { return res.text(); })
+                        .then(function(code) {
+                            if (typeof Babel !== 'undefined') {
+                                // 使用 Babel.transform 将 JSX 转换为 ES5 兼容的普通 JS 代码。
+                                // options 设置 presets 包含 'react' 即可。
+                                var transformed = Babel.transform(code, {
+                                    presets: ['react']
+                                }).code;
+                                
+                                // 创建一个普通的 script 标签并注入编译好的代码以在全局作用域执行
+                                var s = document.createElement('script');
+                                s.text = transformed;
+                                document.body.appendChild(s);
+                            }
+                            window.__PROACTIVE_TRIGGER_PENDING();
+                        })
+                        .catch(function(err) {
+                            console.error("Failed to load Babel script: " + src, err);
+                            window.__PROACTIVE_TRIGGER_PENDING();
+                        });
+                } else {
+                    var s = document.createElement('script');
+                    s.src = src;
+                    s.onload = s.onerror = function() {
+                        window.__PROACTIVE_TRIGGER_PENDING();
+                    };
+                    document.body.appendChild(s);
+                }
+            });
+            window.__PROACTIVE_TRIGGER_PENDING();
+        };
     })();
     </script>
 </head>
@@ -92,196 +151,212 @@
     <div id="root"></div>
 
     <!-- 工具脚本必须先于 JSX 模块加载，以便后者可直接使用 window 上的工具对象。 -->
-    <script src="js/utils/auth.js"></script>
-    <script src="js/utils/http.js"></script>
-    <script src="js/utils/formatters.js"></script>
-    <script src="js/utils/markdown.js"></script>
+    <script>
+        window.__PROACTIVE_QUEUE_SCRIPT("js/utils/auth.js", false);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/utils/http.js", false);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/utils/formatters.js", false);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/utils/markdown.js", false);
+    </script>
 
     <script>
-        (function () {
-            // 该标记用于阻止 React 应用过早启动，直到鉴权探测流程结束后再解除。
-            window.__PROACTIVE_AUTH_PENDING = true;
+        // 鉴权探测流程脚本，必须在 window.AuthUtil 声明后运行。
+        window.__PROACTIVE_QUEUE_SCRIPT("", false); // 用一个占位任务确保 auth-info 鉴权在 utils 之后并在 jsx 之前运行
+        var originalTask = window.__PROACTIVE_PENDING_SCRIPTS.pop();
+        window.__PROACTIVE_PENDING_SCRIPTS.push(function() {
+            (function () {
+                // 该标记用于阻止 React 应用过早启动，直到鉴权探测流程结束后再解除。
+                window.__PROACTIVE_AUTH_PENDING = true;
 
-            var bootLoginEventsBound = false;
+                var bootLoginEventsBound = false;
 
-            function proceed() {
-                // 告知其余脚本：鉴权检查已完成，可以开始渲染业务界面。
-                window.__PROACTIVE_AUTH_PENDING = false;
-                window.dispatchEvent(new Event('auth-ready'));
+                function proceed() {
+                    // 告知其余脚本：鉴权检查已完成，可以开始渲染业务界面。
+                    window.__PROACTIVE_AUTH_PENDING = false;
+                    window.dispatchEvent(new Event('auth-ready'));
 
-                // 延迟关闭骨架屏，让首屏过渡更柔和，避免闪烁。
-                setTimeout(function() {
-                    var skeleton = document.getElementById('loading-skeleton');
-                    if (skeleton) {
-                        skeleton.classList.add('is-exiting');
-                        setTimeout(function() {
-                            if (skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
-                        }, 300);
-                    }
-                }, 500);
-            }
-
-            function showError(msg) {
-                // 启动失败时直接在骨架屏上输出错误信息，避免用户只看到空白页。
-                const text = document.getElementById('boot-text');
-                if (text) {
-                    text.textContent = msg;
-                    text.style.color = '#B3261E';
-                }
-            }
-
-            function showInfo(msg) {
-                const text = document.getElementById('boot-text');
-                if (text) {
-                    text.textContent = msg;
-                    text.style.color = '#D05F00';
-                }
-            }
-
-            function setLoginBusy(busy) {
-                var button = document.getElementById('boot-login-button');
-                var input = document.getElementById('boot-password');
-                if (button) {
-                    button.disabled = !!busy;
-                    button.style.opacity = busy ? '0.72' : '1';
-                    button.textContent = busy ? '登录中...' : '登录进入';
-                }
-                if (input) {
-                    input.disabled = !!busy;
-                }
-            }
-
-            function showLoginForm(message) {
-                var login = document.getElementById('boot-login');
-                var input = document.getElementById('boot-password');
-                var button = document.getElementById('boot-login-button');
-                if (login) login.style.display = 'block';
-                if (message) showError(message);
-                setLoginBusy(false);
-
-                if (!button || !input) {
-                    if (input) setTimeout(function () { input.focus(); }, 0);
-                    return;
-                }
-
-                function submitLogin() {
-                    var password = input.value || '';
-                    if (!password.trim()) {
-                        showError('请输入管理端密码');
-                        input.focus();
-                        return;
-                    }
-
-                    setLoginBusy(true);
-                    showInfo('正在验证密码...');
-                    fetch('/api/login', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ password: password }),
-                    })
-                        .then(function (res) {
-                            return res.json()
-                                .then(function (data) {
-                                    return { ok: res.ok, data: data };
-                                })
-                                .catch(function () {
-                                    return { ok: res.ok, data: null };
-                                });
-                        })
-                        .then(function (result) {
-                            if (!result.ok) {
-                                var errorMessage = result.data && result.data.error ? result.data.error : '登录失败';
-                                throw new Error(errorMessage);
-                            }
-                            var token = result.data && result.data.token;
-                            if (!token) {
-                                throw new Error('登录成功但未获取到访问令牌');
-                            }
-                            window.AuthUtil.setToken(token);
-                            proceed();
-                        })
-                        .catch(function (err) {
-                            showError(err && err.message ? err.message : '登录失败，请稍后重试');
-                            setLoginBusy(false);
-                            input.focus();
-                            input.select();
-                        });
-                }
-
-                if (!bootLoginEventsBound) {
-                    button.addEventListener('click', submitLogin);
-                    input.addEventListener('keydown', function (event) {
-                        if (event.key === 'Enter') {
-                            event.preventDefault();
-                            submitLogin();
+                    // 延迟关闭骨架屏，让首屏过渡更柔和，避免闪烁。
+                    setTimeout(function() {
+                        var skeleton = document.getElementById('loading-skeleton');
+                        if (skeleton) {
+                            skeleton.classList.add('is-exiting');
+                            setTimeout(function() {
+                                if (skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
+                            }, 300);
                         }
-                    });
-                    bootLoginEventsBound = true;
+                    }, 500);
                 }
-                setTimeout(function () { input.focus(); }, 0);
-            }
 
-            function verifyExistingToken(token) {
-                // 通过访问受保护接口来验证 token 是否仍然有效。
-                return fetch('/api/status', {
-                    headers: {
-                        'Authorization': 'Bearer ' + token,
-                    },
-                }).then(function (res) {
-                    if (res.status === 401) {
-                        // 若 token 失效，则清理本地缓存，避免前端继续携带错误凭证。
-                        window.AuthUtil.clearToken();
-                        showLoginForm('访问令牌已失效，请重新登录');
+                function showError(msg) {
+                    // 启动失败时直接在骨架屏上输出错误信息，避免用户只看到空白页。
+                    const text = document.getElementById('boot-text');
+                    if (text) {
+                        text.textContent = msg;
+                        text.style.color = '#B3261E';
+                    }
+                }
+
+                // 注入全局 Auth 状态
+                window.__proceed = proceed;
+                window.__showError = showError;
+
+                function showInfo(msg) {
+                    const text = document.getElementById('boot-text');
+                    if (text) {
+                        text.textContent = msg;
+                        text.style.color = '#D05F00';
+                    }
+                }
+
+                function setLoginBusy(busy) {
+                    var button = document.getElementById('boot-login-button');
+                    var input = document.getElementById('boot-password');
+                    if (button) {
+                        button.disabled = !!busy;
+                        button.style.opacity = busy ? '0.72' : '1';
+                        button.textContent = busy ? '登录中...' : '登录进入';
+                    }
+                    if (input) {
+                        input.disabled = !!busy;
+                    }
+                }
+
+                function showLoginForm(message) {
+                    var login = document.getElementById('boot-login');
+                    var input = document.getElementById('boot-password');
+                    var button = document.getElementById('boot-login-button');
+                    if (login) login.style.display = 'block';
+                    if (message) showError(message);
+                    setLoginBusy(false);
+
+                    if (!button || !input) {
+                        if (input) setTimeout(function () { input.focus(); }, 0);
                         return;
                     }
-                    if (!res.ok) {
-                        throw new Error('管理端鉴权校验失败，请稍后重试');
-                    }
-                    proceed();
-                });
-            }
 
-            // 第一步：询问后端当前是否启用了管理端密码。
-            fetch('/api/auth-info')
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.auth_required) {
-                        // 无需鉴权时立即放行，进入应用初始化。
+                    function submitLogin() {
+                        var password = input.value || '';
+                        if (!password.trim()) {
+                            showError('请输入管理端密码');
+                            input.focus();
+                            return;
+                        }
+
+                        setLoginBusy(true);
+                        showInfo('正在验证密码...');
+                        fetch('/api/login', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ password: password }),
+                        })
+                            .then(function (res) {
+                                return res.json()
+                                    .then(function (data) {
+                                        return { ok: res.ok, data: data };
+                                    })
+                                    .catch(function () {
+                                        return { ok: res.ok, data: null };
+                                    });
+                            })
+                            .then(function (result) {
+                                if (!result.ok) {
+                                    var errorMessage = result.data && result.data.error ? result.data.error : '登录失败';
+                                    throw new Error(errorMessage);
+                                }
+                                var token = result.data && result.data.token;
+                                if (!token) {
+                                    throw new Error('登录成功但未获取到访问令牌');
+                                }
+                                window.AuthUtil.setToken(token);
+                                proceed();
+                            })
+                            .catch(function (err) {
+                                showError(err && err.message ? err.message : '登录失败，请稍后重试');
+                                setLoginBusy(false);
+                                input.focus();
+                                input.select();
+                            });
+                    }
+
+                    if (!bootLoginEventsBound) {
+                        button.addEventListener('click', submitLogin);
+                        input.addEventListener('keydown', function (event) {
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                submitLogin();
+                            }
+                        });
+                        bootLoginEventsBound = true;
+                    }
+                    setTimeout(function () { input.focus(); }, 0);
+                }
+
+                function verifyExistingToken(token) {
+                    // 通过访问受保护接口来验证 token 是否仍然有效。
+                    return fetch('/api/status', {
+                        headers: {
+                            'Authorization': 'Bearer ' + token,
+                        },
+                    }).then(function (res) {
+                        if (res.status === 401) {
+                            // 若 token 失效，则清理本地缓存，避免前端继续携带错误凭证。
+                            window.AuthUtil.clearToken();
+                            showLoginForm('访问令牌已失效，请重新登录');
+                            return;
+                        }
+                        if (!res.ok) {
+                            throw new Error('管理端鉴权校验失败，请稍后重试');
+                        }
                         proceed();
-                        return;
-                    }
+                    });
+                }
 
-                    // 已启用鉴权时，从 localStorage 中取出历史 token 进行有效性验证。
-                    var token = window.AuthUtil.getToken();
-                    if (!token) {
-                        showLoginForm('请输入管理端密码以继续访问');
-                        return;
-                    }
+                // 第一步：询问后端当前是否启用了管理端密码。
+                fetch('/api/auth-info')
+                    .then(function (res) { return res.json(); })
+                    .then(function (data) {
+                        if (!data.auth_required) {
+                            // 无需鉴权时立即放行，进入应用初始化。
+                            proceed();
+                            return;
+                        }
 
-                    return verifyExistingToken(token);
-                })
-                .catch(function () {
-                    // 管理端不可达通常意味着后端服务未启动或网络异常。
-                    showError('管理端连接失败，请检查插件状态');
-                });
-        })();
+                        // 已启用鉴权时，从 localStorage 中取出历史 token 进行有效性验证。
+                        var token = window.AuthUtil.getToken();
+                        if (!token) {
+                            showLoginForm('请输入管理端密码以继续访问');
+                            return;
+                        }
+
+                        return verifyExistingToken(token);
+                    })
+                    .catch(function () {
+                        // 管理端不可达通常意味着后端服务未启动或网络异常。
+                        showError('管理端连接失败，请检查插件状态');
+                    });
+            })();
+            
+            // 本脚本为内联任务，执行完后直接触发下一个队列元素加载
+            window.__PROACTIVE_TRIGGER_PENDING();
+        });
     </script>
 
     <!-- 以下 JSX 文件按“基础能力 -> 布局组件 -> 页面视图 -> 应用入口”的顺序加载。 -->
-    <script type="text/babel" src="js/context/AppContext.jsx" defer></script>
-    <script type="text/babel" src="js/hooks/useApi.js" defer></script>
-    <script type="text/babel" src="js/hooks/useWebSocket.js" defer></script>
-    <script type="text/babel" src="js/components/layout/Sidebar.jsx" defer></script>
-    <script type="text/babel" src="js/components/layout/Header.jsx" defer></script>
-    <script type="text/babel" src="js/views/StatusView.jsx" defer></script>
-    <script type="text/babel" src="js/components/config/ConfigRenderer.jsx" defer></script>
-    <script type="text/babel" src="js/views/ConfigView.jsx" defer></script>
-    <script type="text/babel" src="js/views/TasksView.jsx" defer></script>
-    <script type="text/babel" src="js/views/NotificationsView.jsx" defer></script>
-    <script type="text/babel" src="js/views/MarkdownDocsView.jsx" defer></script>
-    <script type="text/babel" src="js/app.jsx" defer></script>
+    <script>
+        window.__PROACTIVE_QUEUE_SCRIPT("js/context/AppContext.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/hooks/useApi.js", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/hooks/useWebSocket.js", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/components/layout/Sidebar.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/components/layout/Header.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/views/StatusView.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/components/config/ConfigRenderer.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/views/ConfigView.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/views/TasksView.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/views/NotificationsView.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/views/MarkdownDocsView.jsx", true);
+        window.__PROACTIVE_QUEUE_SCRIPT("js/app.jsx", true);
+    </script>
 </body>
 
 </html>
