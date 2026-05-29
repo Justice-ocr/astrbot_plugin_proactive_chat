@@ -147,7 +147,9 @@ class TelemetryManager:
 
         return await self._send_batch([event])
 
-    async def _send_batch(self, events: list[dict], *, requeue_on_failure: bool = True) -> bool:
+    async def _send_batch(
+        self, events: list[dict], *, requeue_on_failure: bool = True
+    ) -> bool:
         """将一批事件打包发送到服务端。
 
         这是所有遥测发送的统一出口。支持单条或多条事件，服务端 ingest API
