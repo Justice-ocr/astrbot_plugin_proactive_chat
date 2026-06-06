@@ -162,6 +162,8 @@ class WebAdminServer:
             ("status", self._page_status, ["GET"]),
             ("config", self._page_config, ["GET", "POST"]),
             ("config-save", self._page_update_config, ["POST"]),
+            ("get_config", self._page_get_config, ["GET"]),
+            ("save_config", self._page_save_config, ["POST"]),
             ("config-schema", self._page_get_config_schema, ["GET"]),
             ("session-config/sessions", self._page_list_session_configs, ["GET"]),
             ("session-config/<path:umo>", self._page_session_config, ["GET", "POST"]),
@@ -295,6 +297,18 @@ class WebAdminServer:
     async def _page_update_config(self):
         payload = await self._read_astrbot_page_json()
         return await self._apply_config_payload(payload)
+
+    async def _page_save_config(self):
+        result = await self._page_update_config()
+        if not result.get("ok", False):
+            return {
+                "success": False,
+                "error": result.get("error") or result.get("message") or "保存失败",
+            }
+        return {
+            "success": True,
+            "config": result.get("config") or self._build_config_payload(),
+        }
 
     async def _page_config(self):
         if self._get_astrbot_page_method() == "POST":

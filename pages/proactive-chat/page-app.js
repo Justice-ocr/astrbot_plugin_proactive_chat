@@ -816,6 +816,10 @@
             if ((state.sessions[m].session || state.sessions[m]) === state.selectedSession) selectedMeta = state.sessions[m];
         }
         var canSaveSession = state.configMode !== "session" || state.sessionConfigState.baseAvailable;
+        var saveBusy = state.configMode === "session" ? state.busy.sessionSave : state.busy.configSave;
+        var saveAction = state.configMode === "session" ? "save-session" : "save-config";
+        var saveText = state.configMode === "session" ? "保存会话配置" : "保存配置";
+        if (saveBusy) saveText = "保存中...";
         $("view-config").innerHTML = [
             '<div class="pc-card pc-config-card">',
             '<div class="pc-config-toolbar">',
@@ -840,7 +844,7 @@
             '<button class="pc-button ghost" data-action="reset-config-defaults">恢复默认</button>',
             '<button class="pc-button ghost" data-action="discard-config">撤销更改</button>',
             state.configMode === "session" ? '<button class="pc-button ghost" data-action="reset-session"' + (!state.selectedSession ? " disabled" : "") + '>清空会话覆写</button>' : "",
-            '<button class="pc-button" data-action="', state.configMode === "session" ? "save-session" : "save-config", '"', canSaveSession ? "" : " disabled", '>', state.configMode === "session" ? "保存会话配置" : "保存配置", '</button>',
+            '<button id="btn-save" class="pc-button" data-action="', saveAction, '" type="button"', canSaveSession && !saveBusy ? "" : " disabled", '>', saveText, '</button>',
             '</div></div>',
             '</div>'
         ].join("");
@@ -1088,7 +1092,7 @@
 
     function loadConfig() {
         Promise.all([
-            apiGet(route("config")),
+            apiGet(route("get_config")),
             apiGet(route("config-schema")),
             apiGet(route("session-config/sessions"))
         ]).then(function (parts) {
@@ -1122,20 +1126,24 @@
         try {
             syncConfigFromVisibleControls();
             var cleaned = cleanConfig(state.config || {});
+            state.config = cleaned;
             var payload = {
                 friend_settings: cleaned.friend_settings,
                 group_settings: cleaned.group_settings,
                 web_admin: cleaned.web_admin,
                 notification_settings: cleaned.notification_settings
             };
-            apiPost(route("config-save"), payload).then(function (data) {
-                state.config = cleaned;
+            setBusy("configSave", true);
+            apiPost(route("save_config"), payload).then(function (data) {
+                state.config = data && data.config ? data.config : cleaned;
                 setFeedback("success", "全局配置已保存。");
                 setError("");
                 render();
             }).catch(function (err) {
                 setFeedback("error", err.message || "配置保存失败");
                 setError(err.message);
+            }).finally(function () {
+                setBusy("configSave", false);
             });
         } catch (e) {
             setError("JSON 格式错误: " + e.message);
@@ -1173,6 +1181,7 @@
         try {
             syncConfigFromVisibleControls();
             var payload = { mode: "effective", effective: cleanConfig(state.config || {}) };
+            setBusy("sessionSave", true);
             apiPost(route("session-config-save/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
                 state.sessionDetail = data || {};
                 state.sessionDetail.effective = payload.effective;
@@ -1183,6 +1192,8 @@
             }).catch(function (err) {
                 setFeedback("error", err.message || "会话配置保存失败");
                 setError(err.message);
+            }).finally(function () {
+                setBusy("sessionSave", false);
             });
         } catch (e) {
             setError("JSON 格式错误: " + e.message);
