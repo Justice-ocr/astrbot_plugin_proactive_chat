@@ -5402,22 +5402,35 @@ class RuntimeErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
-if (!window.__PROACTIVE_WEBUI_INITIALIZED) {
-  // 防止脚本重复执行时反复 createRoot，避免 React 在同一节点重复挂载。
-  window.__PROACTIVE_WEBUI_INITIALIZED = true;
+function mountProactiveApp() {
+  const rootEl = document.getElementById('root');
+  if (!rootEl) {
+    throw new Error('root element not found');
+  }
+  if (rootEl.querySelector('.app')) {
+    window.__PROACTIVE_APP_MOUNTED = true;
+    window.dispatchEvent(new Event('proactive-app-mounted'));
+    return;
+  }
   try {
-    const root = ReactDOM.createRoot(document.getElementById('root'));
     const appNode = /*#__PURE__*/React.createElement(RuntimeErrorBoundary, null, /*#__PURE__*/React.createElement(AuthWrapper, null));
+    const root = rootEl.__proactiveReactRoot || ReactDOM.createRoot(rootEl);
+    rootEl.__proactiveReactRoot = root;
+    window.__PROACTIVE_WEBUI_INITIALIZED = true;
     window.__PROACTIVE_REACT_RENDER_REQUESTED = true;
+    const render = () => root.render(appNode);
     if (typeof ReactDOM.flushSync === 'function') {
-      ReactDOM.flushSync(() => {
-        root.render(appNode);
-      });
+      ReactDOM.flushSync(render);
     } else {
-      root.render(appNode);
+      render();
     }
+    [0, 120, 500].forEach(delay => {
+      window.setTimeout(() => {
+        if (!rootEl.isConnected || rootEl.querySelector('.app')) return;
+        render();
+      }, delay);
+    });
   } catch (e) {
-    const rootEl = document.getElementById('root');
     if (rootEl) {
       rootEl.innerHTML = `
                 <div class="boot-loader">
@@ -5430,3 +5443,4 @@ if (!window.__PROACTIVE_WEBUI_INITIALIZED) {
     throw e;
   }
 }
+mountProactiveApp();
