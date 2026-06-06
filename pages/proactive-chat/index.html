@@ -9,10 +9,10 @@
     <link rel="preload" href="./fonts/outfit.css" as="style">
     <link href="./fonts/outfit.css" rel="stylesheet">
     <link rel="stylesheet" href="./css/style.css">
-    <script src="/api/plugin/page/bridge-sdk.js"></script>
     <script>
         window.__PROACTIVE_AUTH_PENDING = true;
         window.__PROACTIVE_PAGE_MODE = true;
+        window.__PROACTIVE_BOOT_STAGE = "bootstrap";
         window.showProactiveBootError = function (msg) {
             console.error("[ProactivePage] " + msg);
             var text = document.getElementById("boot-text");
@@ -21,15 +21,38 @@
                 text.style.color = "#B3261E";
             }
         };
+        window.setProactiveBootStage = function (stage) {
+            window.__PROACTIVE_BOOT_STAGE = stage;
+            var text = document.getElementById("boot-text");
+            if (text) {
+                text.textContent = "正在加载 " + stage + "...";
+                text.style.color = "";
+            }
+        };
+        window.proactiveScriptLoadError = function (stage) {
+            window.showProactiveBootError("脚本加载失败: " + stage);
+        };
         window.addEventListener("error", function (event) {
-            var message = event && event.message ? event.message : "页面脚本加载失败";
+            var stage = window.__PROACTIVE_BOOT_STAGE || "unknown";
+            var rawMessage = event && event.message ? event.message : "页面脚本加载失败";
+            var message = rawMessage === "Script error."
+                ? "脚本执行失败: " + stage
+                : "脚本执行失败: " + stage + " - " + rawMessage;
             window.showProactiveBootError(message);
         });
         window.addEventListener("unhandledrejection", function (event) {
+            var stage = window.__PROACTIVE_BOOT_STAGE || "unknown";
             var reason = event && event.reason;
             var message = reason && reason.message ? reason.message : "页面初始化失败";
-            window.showProactiveBootError(message);
+            window.showProactiveBootError("异步初始化失败: " + stage + " - " + message);
         });
+    </script>
+    <script>
+        window.setProactiveBootStage("bridge-sdk");
+    </script>
+    <script src="/api/plugin/page/bridge-sdk.js" onerror="window.proactiveScriptLoadError('bridge-sdk')"></script>
+    <script>
+        window.setProactiveBootStage("vendor globals");
         (function () {
             var originalDefine = window.define;
             var originalAmd = originalDefine && originalDefine.amd;
@@ -74,19 +97,27 @@
 
     <div id="root"></div>
 
-    <script src="./vendor/react.production.min.js"></script>
-    <script src="./vendor/react-dom.production.min.js"></script>
-    <script src="./vendor/emotion-react.umd.min.js"></script>
-    <script src="./vendor/emotion-styled.umd.min.js"></script>
-    <script src="./vendor/material-ui.production.min.js"></script>
-    <script src="./vendor/marked.min.js"></script>
-    <script src="./vendor/purify.min.js"></script>
-    <script src="./vendor/mermaid.min.js"></script>
-    <script src="./app.js"></script>
+    <script>window.setProactiveBootStage("react");</script>
+    <script src="./vendor/react.production.min.js" onerror="window.proactiveScriptLoadError('react')"></script>
+    <script>window.setProactiveBootStage("react-dom");</script>
+    <script src="./vendor/react-dom.production.min.js" onerror="window.proactiveScriptLoadError('react-dom')"></script>
+    <script>window.setProactiveBootStage("emotion-react");</script>
+    <script src="./vendor/emotion-react.umd.min.js" onerror="window.proactiveScriptLoadError('emotion-react')"></script>
+    <script>window.setProactiveBootStage("emotion-styled");</script>
+    <script src="./vendor/emotion-styled.umd.min.js" onerror="window.proactiveScriptLoadError('emotion-styled')"></script>
+    <script>window.setProactiveBootStage("material-ui");</script>
+    <script src="./vendor/material-ui.production.min.js" onerror="window.proactiveScriptLoadError('material-ui')"></script>
+    <script>window.setProactiveBootStage("marked");</script>
+    <script src="./vendor/marked.min.js" onerror="window.proactiveScriptLoadError('marked')"></script>
+    <script>window.setProactiveBootStage("dompurify");</script>
+    <script src="./vendor/purify.min.js" onerror="window.proactiveScriptLoadError('dompurify')"></script>
+    <script>window.setProactiveBootStage("app");</script>
+    <script src="./app.js" onerror="window.proactiveScriptLoadError('app')"></script>
     <script>
         if (typeof window.__PROACTIVE_RESTORE_AMD_DEFINE === "function") {
             window.__PROACTIVE_RESTORE_AMD_DEFINE();
         }
+        window.setProactiveBootStage("page bridge");
     </script>
     <script>
         (function () {
