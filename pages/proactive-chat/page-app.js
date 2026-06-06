@@ -14,6 +14,11 @@
         notificationsMeta: {},
         config: null,
         configSchema: null,
+        configMode: "global",
+        expandedKeys: [],
+        saveFeedback: "",
+        saveFeedbackType: "",
+        sessionConfigState: { baseAvailable: true, message: "" },
         selectedSession: "",
         sessionDetail: null,
         markdownFiles: [],
@@ -67,6 +72,49 @@
         return Array.isArray(value) ? value : [];
     }
 
+    function objectKeys(value) {
+        return value && typeof value === "object" ? Object.keys(value) : [];
+    }
+
+    function closest(node, selector) {
+        while (node && node !== document) {
+            if (node.matches && node.matches(selector)) return node;
+            node = node.parentNode;
+        }
+        return null;
+    }
+
+    function parsePath(path) {
+        return String(path || "").split(".").filter(Boolean);
+    }
+
+    function getByPath(source, path) {
+        var parts = parsePath(path);
+        var current = source;
+        for (var i = 0; i < parts.length; i += 1) {
+            if (!current || typeof current !== "object") return undefined;
+            current = current[parts[i]];
+        }
+        return current;
+    }
+
+    function setByPath(source, path, value) {
+        var parts = parsePath(path);
+        var current = source;
+        for (var i = 0; i < parts.length - 1; i += 1) {
+            var key = parts[i];
+            if (!current[key] || typeof current[key] !== "object" || Array.isArray(current[key])) {
+                current[key] = {};
+            }
+            current = current[key];
+        }
+        if (parts.length) current[parts[parts.length - 1]] = value;
+    }
+
+    function stripLeadingEmoji(value) {
+        return String(value || "").replace(/^[\s\u2600-\u27BF\uD800-\uDBFF][\s\uFE0F\u200D\uDC00-\uDFFF]*/g, "").trim() || String(value || "");
+    }
+
     function setBusy(key, value) {
         state.busy[key] = Boolean(value);
         render();
@@ -94,7 +142,7 @@
     function formatDate(value) {
         if (!value) return "--";
         var date = new Date(value);
-        if (Number.isNaN(date.getTime())) return text(value);
+        if (isNaN(date.getTime())) return text(value);
         return date.toLocaleString("zh-CN", {
             year: "numeric",
             month: "2-digit",
@@ -233,23 +281,32 @@
 
     function bindShellEvents() {
         document.addEventListener("click", function (event) {
-            var viewBtn = event.target.closest("[data-view]");
+            var viewBtn = closest(event.target, "[data-view]");
             if (viewBtn) {
                 switchView(viewBtn.getAttribute("data-view"));
                 return;
             }
-            var action = event.target.closest("[data-action]");
+            var action = closest(event.target, "[data-action]");
             if (!action) return;
             handleAction(action.getAttribute("data-action"), action);
         });
         document.addEventListener("change", function (event) {
             if (event.target && event.target.id === "session-select") {
                 state.selectedSession = event.target.value;
+                state.expandedKeys = [];
                 loadSessionDetail(state.selectedSession);
             }
             if (event.target && event.target.id === "doc-select") {
                 state.selectedMarkdownPath = event.target.value;
                 loadMarkdownDocument(state.selectedMarkdownPath);
+            }
+            if (event.target && event.target.getAttribute("data-config-path")) {
+                updateConfigFromControl(event.target, true);
+            }
+        });
+        document.addEventListener("input", function (event) {
+            if (event.target && event.target.getAttribute("data-config-path")) {
+                updateConfigFromControl(event.target, false);
             }
         });
     }
@@ -268,6 +325,11 @@
         if (action === "load-config") loadConfig();
         if (action === "save-session") saveSessionConfig();
         if (action === "reset-session") resetSessionConfig();
+        if (action === "config-mode") switchConfigMode(node.getAttribute("data-mode"));
+        if (action === "toggle-config") toggleConfigGroup(node.getAttribute("data-path"));
+        if (action === "toggle-all-config") toggleAllConfigGroups();
+        if (action === "reset-config-defaults") resetConfigDefaults();
+        if (action === "discard-config") loadConfig();
     }
 
     function switchView(view) {
@@ -469,34 +531,342 @@
         return out.join("");
     }
 
-    function renderConfig() {
-        var configText = state.config ? escapeHtml(JSON.stringify(state.config, null, 2)) : "";
+    function detectSessionType(sessionId) {
+        var raw = String(sessionId || "");
+        if (raw.indexOf(":GroupMessage:") >= 0 || raw.indexOf(":GuildMessage:") >= 0) return "group";
+        return "friend";
+    }
+
+    function getSessionSchemaEntries(schema, sessionType) {
+        var rootKey = sessionType === "group" ? "group_settings" : "friend_settings";
+        var rootItems = schema && schema[rootKey] && schema[rootKey].items || {};
+        var orderedKeys = [
+            "auto_trigger_settings",
+            "group_idle_trigger_minutes",
+            "proactive_prompt",
+            "context_settings",
+            "schedule_settings",
+            "tts_settings",
+            "segmented_reply_settings"
+        ];
+        var entries = [];
+        entries.push(["session_name", rootItems.session_name || {
+            type: "string",
+            default: "",
+            description: "会话备注名",
+            hint: "用于日志和管理端展示。为空时将回退显示 UMO。"
+        }]);
+        for (var i = 0; i < orderedKeys.length; i += 1) {
+            if (rootItems[orderedKeys[i]]) entries.push([orderedKeys[i], rootItems[orderedKeys[i]]]);
+        }
+        return entries;
+    }
+
+    function getConfigEntries() {
         var schema = state.configSchema || {};
-        var schemaKeys = Object.keys(schema);
+        if (state.configMode === "session") {
+            return getSessionSchemaEntries(schema, detectSessionType(state.selectedSession));
+        }
+        var keys = objectKeys(schema);
+        var entries = [];
+        for (var i = 0; i < keys.length; i += 1) entries.push([keys[i], schema[keys[i]]]);
+        return entries;
+    }
+
+    function getAllExpandablePathsFromEntries(entries, prefix) {
+        var paths = [];
+        for (var i = 0; i < entries.length; i += 1) {
+            var key = entries[i][0];
+            var schema = entries[i][1] || {};
+            var path = prefix ? prefix + "." + key : key;
+            if (schema.type === "object" && schema.items) {
+                paths.push(path);
+                var childEntries = [];
+                var childKeys = objectKeys(schema.items);
+                for (var j = 0; j < childKeys.length; j += 1) childEntries.push([childKeys[j], schema.items[childKeys[j]]]);
+                paths = paths.concat(getAllExpandablePathsFromEntries(childEntries, path));
+            }
+        }
+        return paths;
+    }
+
+    function schemaTitle(key, schema) {
+        return stripLeadingEmoji(schema && schema.description || key);
+    }
+
+    function schemaDefault(schema) {
+        if (!schema) return "";
+        if (schema.default !== undefined) return schema.default;
+        if (schema.type === "bool" || schema.type === "boolean") return false;
+        if (schema.type === "int" || schema.type === "integer" || schema.type === "number" || schema.type === "float" || schema.type === "double") return 0;
+        if (schema.type === "list" || schema.type === "array") return [];
+        if (schema.type === "object") return {};
+        return "";
+    }
+
+    function fieldValue(path, schema) {
+        var value = getByPath(state.config, path);
+        return value === undefined ? schemaDefault(schema) : value;
+    }
+
+    function conditionMatches(path, schema) {
+        if (!schema || !schema.condition) return true;
+        var parts = parsePath(path);
+        parts.pop();
+        var parent = getByPath(state.config, parts.join(".")) || {};
+        var keys = objectKeys(schema.condition);
+        for (var i = 0; i < keys.length; i += 1) {
+            if (parent[keys[i]] !== schema.condition[keys[i]]) return false;
+        }
+        return true;
+    }
+
+    function controlAttrs(path, type) {
+        return ' data-config-path="' + escapeHtml(path) + '" data-config-type="' + escapeHtml(type || "string") + '"';
+    }
+
+    function renderConfigField(key, schema, path, depth) {
+        schema = schema || {};
+        if (schema.hidden || !conditionMatches(path, schema)) return "";
+        var value = fieldValue(path, schema);
+        var title = schemaTitle(key, schema);
+        var hint = schema.hint ? '<div class="pc-field-hint">' + escapeHtml(schema.hint) + '</div>' : "";
+        var type = schema.type || "string";
+
+        if (type === "object" && schema.items) {
+            var expanded = state.expandedKeys.indexOf(path) >= 0;
+            var childKeys = objectKeys(schema.items);
+            var children = [];
+            if (expanded) {
+                for (var i = 0; i < childKeys.length; i += 1) {
+                    var childKey = childKeys[i];
+                    children.push(renderConfigField(childKey, schema.items[childKey], path + "." + childKey, depth + 1));
+                }
+            }
+            return [
+                '<div class="pc-config-group depth-', depth, '">',
+                '<button class="pc-config-summary" data-action="toggle-config" data-path="', escapeHtml(path), '">',
+                '<span class="pc-config-arrow">', expanded ? "▾" : "▸", '</span>',
+                '<span><span class="pc-config-title">', escapeHtml(title), '</span>',
+                schema.hint ? '<span class="pc-config-hint">' + escapeHtml(schema.hint) + '</span>' : "",
+                '</span>',
+                '<span class="pc-config-count">', childKeys.length, ' 项</span>',
+                '</button>',
+                expanded ? '<div class="pc-config-children">' + children.join("") + '</div>' : "",
+                '</div>'
+            ].join("");
+        }
+
+        var input = "";
+        if (type === "bool" || type === "boolean") {
+            input = '<label class="pc-switch"><input type="checkbox"' + controlAttrs(path, "bool") + (value ? " checked" : "") + '><span></span></label>';
+        } else if (type === "int" || type === "integer" || type === "number" || type === "float" || type === "double") {
+            var slider = schema.slider || {};
+            var min = slider.min !== undefined ? slider.min : schema.minimum;
+            var max = slider.max !== undefined ? slider.max : schema.maximum;
+            var step = slider.step !== undefined ? slider.step : (type === "int" || type === "integer" ? 1 : 0.1);
+            var rangeAttrs = "";
+            if (min !== undefined) rangeAttrs += ' min="' + escapeHtml(min) + '"';
+            if (max !== undefined) rangeAttrs += ' max="' + escapeHtml(max) + '"';
+            if (step !== undefined) rangeAttrs += ' step="' + escapeHtml(step) + '"';
+            input = [
+                '<div class="pc-number-field">',
+                min !== undefined && max !== undefined ? '<input class="pc-range" type="range"' + controlAttrs(path, type) + rangeAttrs + ' value="' + escapeHtml(value) + '">' : "",
+                '<input class="pc-input" type="number"', controlAttrs(path, type), rangeAttrs, ' value="', escapeHtml(value), '">',
+                '</div>'
+            ].join("");
+        } else if ((schema.options && Array.isArray(schema.options))) {
+            var labels = Array.isArray(schema.labels) ? schema.labels : [];
+            var options = [];
+            for (var o = 0; o < schema.options.length; o += 1) {
+                options.push('<option value="' + escapeHtml(schema.options[o]) + '"' + (schema.options[o] === value ? " selected" : "") + '>' + escapeHtml(labels[o] || schema.options[o]) + '</option>');
+            }
+            input = '<select class="pc-select"' + controlAttrs(path, "select") + '>' + options.join("") + '</select>';
+        } else if (type === "list" || type === "array") {
+            input = '<textarea class="pc-textarea compact"' + controlAttrs(path, "list") + ' spellcheck="false" placeholder="每行一项">' + escapeHtml(Array.isArray(value) ? value.join("\n") : "") + '</textarea>';
+        } else if (type === "text") {
+            input = '<textarea class="pc-textarea prompt"' + controlAttrs(path, "text") + ' spellcheck="false">' + escapeHtml(value) + '</textarea>';
+        } else {
+            input = '<input class="pc-input"' + controlAttrs(path, "string") + ' value="' + escapeHtml(value) + '">';
+        }
+
+        return [
+            '<div class="pc-config-field depth-', depth, '">',
+            '<div class="pc-field-copy"><div class="pc-field-title">', escapeHtml(title), '</div>', hint, '</div>',
+            '<div class="pc-field-control">', input, '</div>',
+            '</div>'
+        ].join("");
+    }
+
+    function renderConfig() {
+        var schema = state.configSchema || {};
+        var entries = getConfigEntries();
         var sessionOptions = ['<option value="">选择会话...</option>'];
         for (var i = 0; i < state.sessions.length; i += 1) {
             var s = state.sessions[i] || {};
             var value = s.session || s;
-            sessionOptions.push('<option value="' + escapeHtml(value) + '"' + (value === state.selectedSession ? " selected" : "") + '>' + escapeHtml((s.session_display_name || s.session_name || value) + (s.has_override ? " · 已覆写" : "")) + '</option>');
+            var display = s.session_display_name || s.session_name || value;
+            if (s.session_name && s.session_name !== display) display += " (" + value + ")";
+            sessionOptions.push('<option value="' + escapeHtml(value) + '"' + (value === state.selectedSession ? " selected" : "") + '>' + escapeHtml(display + (s.has_override ? " · 已覆写" : "")) + '</option>');
         }
-        var sessionText = state.sessionDetail ? escapeHtml(JSON.stringify(state.sessionDetail.override || {}, null, 2)) : "";
+        var fields = [];
+        for (var e = 0; e < entries.length; e += 1) {
+            fields.push(renderConfigField(entries[e][0], entries[e][1], entries[e][0], 0));
+        }
+        var selectedMeta = null;
+        for (var m = 0; m < state.sessions.length; m += 1) {
+            if ((state.sessions[m].session || state.sessions[m]) === state.selectedSession) selectedMeta = state.sessions[m];
+        }
+        var canSaveSession = state.configMode !== "session" || state.sessionConfigState.baseAvailable;
         $("view-config").innerHTML = [
-            '<div class="pc-grid two">',
-            '<div class="pc-card"><div class="pc-card-header"><div><div class="pc-card-title">全局配置</div><div class="pc-card-subtitle">使用 JSON 编辑完整配置，保存前请确认格式正确。</div></div><button class="pc-button secondary" data-action="load-config">刷新</button></div>',
-            '<textarea class="pc-textarea" id="config-editor" spellcheck="false">', configText, '</textarea>',
-            '<div class="pc-row-actions" style="margin-top:12px"><button class="pc-button" data-action="save-config">保存全局配置</button></div>',
+            '<div class="pc-card pc-config-card">',
+            '<div class="pc-config-toolbar">',
+            '<div class="pc-segmented">',
+            '<button class="', state.configMode === "global" ? "is-active" : "", '" data-action="config-mode" data-mode="global">全局配置</button>',
+            '<button class="', state.configMode === "session" ? "is-active" : "", '" data-action="config-mode" data-mode="session">会话差异配置</button>',
             '</div>',
-            '<div class="pc-card"><div class="pc-card-title">配置结构</div><div class="pc-card-subtitle">Schema 分组概览</div>',
-            schemaKeys.length ? '<div class="pc-list" style="margin-top:14px">' + schemaKeys.map(function (key) { return infoRow(key, schema[key] && schema[key].description || schema[key] && schema[key].title || "配置分组"); }).join("") + '</div>' : '<div class="pc-empty" style="margin-top:14px">暂无 Schema</div>',
+            '<div class="pc-config-actions">',
+            state.configMode === "session" ? '<select class="pc-select session-picker" id="session-select">' + sessionOptions.join("") + '</select>' : "",
+            '<button class="pc-button secondary" data-action="load-config">刷新</button>',
             '</div>',
             '</div>',
-            '<div class="pc-card" style="margin-top:16px"><div class="pc-card-header"><div><div class="pc-card-title">会话差异配置</div><div class="pc-card-subtitle">选择会话后编辑 override JSON，留空对象表示不覆写。</div></div></div>',
-            '<div class="pc-form-grid"><select class="pc-select" id="session-select">', sessionOptions.join(""), '</select><button class="pc-button secondary" data-action="reset-session">清空覆写</button></div>',
-            '<textarea class="pc-textarea" id="session-editor" spellcheck="false" style="margin-top:12px">', sessionText, '</textarea>',
-            '<div class="pc-row-actions" style="margin-top:12px"><button class="pc-button" data-action="save-session">保存会话配置</button></div>',
-            state.sessionDetail ? '<div class="pc-footer-note">当前会话: ' + escapeHtml(state.sessionDetail.session || state.selectedSession) + '</div>' : '',
+            state.configMode === "session" && selectedMeta ? '<div class="pc-footer-note">当前会话: ' + escapeHtml(selectedMeta.session_display_name || selectedMeta.session_name || selectedMeta.session || selectedMeta) + ' ｜ 未回复次数: ' + escapeHtml(text(selectedMeta.unanswered_count, "0")) + '</div>' : "",
+            state.configMode === "session" && state.config ? renderSessionEnableCard() : "",
+            state.sessionConfigState.message ? '<div class="pc-warning">' + escapeHtml(state.sessionConfigState.message) + '</div>' : "",
+            state.saveFeedback ? '<div class="pc-feedback ' + escapeHtml(state.saveFeedbackType) + '">' + escapeHtml(state.saveFeedback) + '</div>' : "",
+            objectKeys(schema).length ? '<div class="pc-config-form">' + fields.join("") + '</div>' : '<div class="pc-empty">暂无配置 Schema</div>',
+            '<div class="pc-config-footer">',
+            '<div class="pc-footer-note">', entries.length, ' 个配置组 · ', state.expandedKeys.length ? "已展开 " + state.expandedKeys.length + " 项" : "当前全部收起", '</div>',
+            '<div class="pc-row-actions">',
+            '<button class="pc-button secondary" data-action="toggle-all-config">', state.expandedKeys.length ? "全部收起" : "全部展开", '</button>',
+            '<button class="pc-button ghost" data-action="reset-config-defaults">恢复默认</button>',
+            '<button class="pc-button ghost" data-action="discard-config">撤销更改</button>',
+            state.configMode === "session" ? '<button class="pc-button ghost" data-action="reset-session"' + (!state.selectedSession ? " disabled" : "") + '>清空会话覆写</button>' : "",
+            '<button class="pc-button" data-action="', state.configMode === "session" ? "save-session" : "save-config", '"', canSaveSession ? "" : " disabled", '>', state.configMode === "session" ? "保存会话配置" : "保存配置", '</button>',
+            '</div></div>',
             '</div>'
         ].join("");
+    }
+
+    function renderSessionEnableCard() {
+        var enabled = Boolean(state.config && state.config.enable);
+        var label = detectSessionType(state.selectedSession) === "group" ? "群聊会话启用状态" : "私聊会话启用状态";
+        return [
+            '<div class="pc-session-enable">',
+            '<div><div class="pc-field-title">', label, '</div>',
+            '<div class="pc-field-hint">这是当前会话的独立开关。关闭后，该会话会暂停主动消息，但不影响同类型全局配置与其他会话。</div></div>',
+            '<div class="pc-row-actions"><span class="pc-chip ', enabled ? "is-ok" : "is-warn", '">', enabled ? "已启用" : "已暂停", '</span>',
+            '<label class="pc-switch"><input type="checkbox"', controlAttrs("enable", "bool"), enabled ? " checked" : "", '><span></span></label></div>',
+            '</div>'
+        ].join("");
+    }
+
+    function setFeedback(type, message) {
+        state.saveFeedbackType = type || "";
+        state.saveFeedback = message || "";
+    }
+
+    function switchConfigMode(mode) {
+        if (mode !== "global" && mode !== "session") return;
+        state.configMode = mode;
+        state.expandedKeys = [];
+        setFeedback("", "");
+        if (mode === "session" && !state.selectedSession && state.sessions.length) {
+            state.selectedSession = state.sessions[0].session || state.sessions[0];
+        }
+        loadConfig();
+    }
+
+    function toggleConfigGroup(path) {
+        var index = state.expandedKeys.indexOf(path);
+        if (index >= 0) {
+            state.expandedKeys.splice(index, 1);
+        } else {
+            state.expandedKeys.push(path);
+        }
+        render();
+    }
+
+    function toggleAllConfigGroups() {
+        if (state.expandedKeys.length) {
+            state.expandedKeys = [];
+        } else {
+            state.expandedKeys = getAllExpandablePathsFromEntries(getConfigEntries(), "");
+        }
+        render();
+    }
+
+    function generateDefaults(entries) {
+        var result = {};
+        for (var i = 0; i < entries.length; i += 1) {
+            var key = entries[i][0];
+            var schema = entries[i][1] || {};
+            if (schema.type === "object" && schema.items) {
+                var childEntries = [];
+                var childKeys = objectKeys(schema.items);
+                for (var j = 0; j < childKeys.length; j += 1) childEntries.push([childKeys[j], schema.items[childKeys[j]]]);
+                result[key] = generateDefaults(childEntries);
+            } else {
+                result[key] = schemaDefault(schema);
+            }
+        }
+        return result;
+    }
+
+    function resetConfigDefaults() {
+        if (!window.confirm("确定要恢复默认值吗？\n\n这会覆盖当前编辑区内容，需要点击保存后才会写入。")) return;
+        state.config = generateDefaults(getConfigEntries());
+        if (state.configMode === "session" && state.config.enable === undefined) {
+            state.config.enable = true;
+        }
+        setFeedback("warn", "已恢复为默认值，点击保存后生效。");
+        render();
+    }
+
+    function updateConfigFromControl(node, shouldRender) {
+        if (!state.config || typeof state.config !== "object") state.config = {};
+        var path = node.getAttribute("data-config-path");
+        var type = node.getAttribute("data-config-type") || "string";
+        var value = node.value;
+        if (type === "bool") {
+            value = Boolean(node.checked);
+            shouldRender = true;
+        } else if (type === "list") {
+            value = String(value || "").split(/\r?\n/);
+        } else if (type === "int" || type === "integer") {
+            if (value === "" || value === "-") return;
+            value = parseInt(value, 10);
+            if (isNaN(value)) value = 0;
+        } else if (type === "number" || type === "float" || type === "double") {
+            if (value === "" || value === "-") return;
+            value = parseFloat(value);
+            if (isNaN(value)) value = 0;
+        }
+        setByPath(state.config, path, value);
+        setFeedback("", "");
+        if (node.type === "range") {
+            var pair = document.querySelector('input[type="number"][data-config-path="' + path.replace(/"/g, '\\"') + '"]');
+            if (pair) pair.value = node.value;
+        }
+        if (shouldRender || type === "select") render();
+    }
+
+    function cleanConfig(obj) {
+        if (Array.isArray(obj)) {
+            var list = [];
+            for (var i = 0; i < obj.length; i += 1) {
+                var item = typeof obj[i] === "string" ? obj[i].trim() : obj[i];
+                if (item !== "") list.push(item);
+            }
+            return list;
+        }
+        if (obj && typeof obj === "object") {
+            var next = {};
+            var keys = objectKeys(obj);
+            for (var k = 0; k < keys.length; k += 1) next[keys[k]] = cleanConfig(obj[keys[k]]);
+            return next;
+        }
+        return obj;
     }
 
     function openDirectory(path) {
@@ -615,9 +985,25 @@
             apiGet(route("config-schema")),
             apiGet(route("session-config/sessions"))
         ]).then(function (parts) {
-            state.config = parts[0] || {};
             state.configSchema = parts[1] && (parts[1].schema || parts[1]) || {};
             state.sessions = asArray(parts[2].sessions || parts[2]);
+            if (state.configMode === "session") {
+                if (!state.selectedSession && state.sessions.length) {
+                    state.selectedSession = state.sessions[0].session || state.sessions[0];
+                }
+                if (state.selectedSession) {
+                    loadSessionDetail(state.selectedSession);
+                    return;
+                }
+                state.config = null;
+                state.sessionConfigState = { baseAvailable: false, message: "请先选择一个会话。" };
+            } else {
+                state.config = parts[0] || {};
+                state.sessionConfigState = { baseAvailable: true, message: "" };
+            }
+            if (!state.expandedKeys.length) {
+                state.expandedKeys = getAllExpandablePathsFromEntries(getConfigEntries(), "");
+            }
             setError("");
             render();
         }).catch(function (err) {
@@ -626,15 +1012,19 @@
     }
 
     function saveConfig() {
-        var editor = $("config-editor");
-        if (!editor) return;
         try {
-            var payload = JSON.parse(editor.value || "{}");
+            var cleaned = cleanConfig(state.config || {});
+            var payload = {
+                friend_settings: cleaned.friend_settings,
+                group_settings: cleaned.group_settings,
+                web_admin: cleaned.web_admin,
+                notification_settings: cleaned.notification_settings
+            };
             apiPost(route("config"), payload).then(function (data) {
-                state.config = data.config || data || payload;
+                state.config = cleaned;
+                setFeedback("success", "全局配置已保存。");
                 setError("");
                 render();
-                window.alert("全局配置已保存");
             }).catch(function (err) { setError(err.message); });
         } catch (e) {
             setError("JSON 格式错误: " + e.message);
@@ -649,6 +1039,14 @@
         }
         apiGet(route("session-config/" + encodeURIComponent(session))).then(function (data) {
             state.sessionDetail = data || {};
+            state.config = state.sessionDetail.effective || state.sessionDetail.override || {};
+            state.sessionConfigState = state.sessionDetail.base ? { baseAvailable: true, message: "" } : {
+                baseAvailable: false,
+                message: "该会话尚未命中对应类型的全局 session_list，暂时无法保存会话差异配置。请先在对应全局配置中加入该会话。"
+            };
+            if (!state.expandedKeys.length) {
+                state.expandedKeys = getAllExpandablePathsFromEntries(getConfigEntries(), "");
+            }
             setError("");
             render();
         }).catch(function (err) {
@@ -661,14 +1059,14 @@
             setError("请先选择会话");
             return;
         }
-        var editor = $("session-editor");
         try {
-            var payload = JSON.parse(editor && editor.value || "{}");
+            var payload = { mode: "effective", effective: cleanConfig(state.config || {}) };
             apiPost(route("session-config/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
                 state.sessionDetail = data || {};
+                state.config = state.sessionDetail.effective || payload.effective;
+                setFeedback("success", "会话差异配置已保存。");
                 setError("");
                 render();
-                window.alert("会话配置已保存");
             }).catch(function (err) { setError(err.message); });
         } catch (e) {
             setError("JSON 格式错误: " + e.message);
@@ -680,8 +1078,11 @@
             setError("请先选择会话");
             return;
         }
+        if (!window.confirm("确定要清空该会话的差异配置吗？\n\n清空后将完全继承全局默认配置。")) return;
         apiPost(route("session-config-delete/" + encodeURIComponent(state.selectedSession)), {}).then(function (data) {
             state.sessionDetail = data || {};
+            state.config = state.sessionDetail.effective || {};
+            setFeedback("success", "会话差异配置已清空。");
             loadConfig();
         }).catch(function (err) { setError(err.message); });
     }

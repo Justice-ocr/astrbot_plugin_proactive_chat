@@ -506,8 +506,13 @@ class WebAdminServer:
 
         @self.app.post("/api/config")
         async def update_config(payload: dict[str, Any]):
-            # 仅允许更新这三个一级配置块，避免前端误写其它未知字段。
-            allowed_keys = {"friend_settings", "group_settings", "web_admin"}
+            # 仅允许更新已知一级配置块，避免前端误写其它未知字段。
+            allowed_keys = {
+                "friend_settings",
+                "group_settings",
+                "web_admin",
+                "notification_settings",
+            }
             for key in allowed_keys:
                 if key not in payload:
                     continue
@@ -997,7 +1002,12 @@ class WebAdminServer:
         }
 
     async def _apply_config_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        allowed_keys = {"friend_settings", "group_settings", "web_admin"}
+        allowed_keys = {
+            "friend_settings",
+            "group_settings",
+            "web_admin",
+            "notification_settings",
+        }
         for key in allowed_keys:
             if key not in payload:
                 continue
