@@ -1750,12 +1750,13 @@ class WebAdminServer:
         }
 
     def _collect_jobs(self) -> list[dict[str, Any]]:
-        if not self.plugin.scheduler:
-            return []
-
         jobs = []
-        for job in self.plugin.scheduler.get_jobs():
+        seen_sessions: set[str] = set()
+
+        for job in self.plugin.scheduler.get_jobs() if self.plugin.scheduler else []:
             session_id = str(job.id)
+            normalized_session_id = self.plugin._normalize_session_id(session_id)
+            seen_sessions.add(normalized_session_id)
             session_data = self.plugin.session_data.get(session_id, {})
             session_config = self.plugin._get_session_config(session_id) or {}
             schedule_settings = session_config.get("schedule_settings", {})
@@ -1764,6 +1765,8 @@ class WebAdminServer:
             jobs.append(
                 {
                     "id": session_id,
+                    "status": "scheduled",
+                    "status_label": "已调度",
                     "session_name": self.plugin._get_session_name(
                         session_id, session_config
                     ),
@@ -1807,6 +1810,87 @@ class WebAdminServer:
                     "quiet_hours": schedule_settings.get("quiet_hours", ""),
                 }
             )
+
+        for session_id in self._list_known_sessions():
+            normalized_session_id = self.plugin._normalize_session_id(str(session_id))
+            if normalized_session_id in seen_sessions:
+                continue
+
+            session_config = self.plugin._get_session_config(normalized_session_id)
+            if not session_config or not session_config.get("enable", False):
+                continue
+
+            session_data = self.plugin.session_data.get(
+                normalized_session_id, self.plugin.session_data.get(str(session_id), {})
+            )
+            schedule_settings = session_config.get("schedule_settings", {})
+            context_settings = session_config.get("context_settings", {})
+            auto_trigger_settings = session_config.get("auto_trigger_settings", {})
+            next_trigger_time = session_data.get("next_trigger_time")
+            next_run_time = None
+            if next_trigger_time:
+                try:
+                    next_run_time = datetime.fromtimestamp(
+                        float(next_trigger_time),
+                        tz=getattr(self.plugin, "timezone", None),
+                    ).isoformat()
+                except Exception:
+                    next_run_time = None
+
+            jobs.append(
+                {
+                    "id": normalized_session_id,
+                    "status": "pending_schedule",
+                    "status_label": "待调度",
+                    "session_name": self.plugin._get_session_name(
+                        normalized_session_id, session_config
+                    ),
+                    "session_display_name": self.plugin._get_session_display_name(
+                        normalized_session_id, session_config
+                    ),
+                    "session_category": self._detect_session_category(
+                        normalized_session_id
+                    ),
+                    "source_mode": context_settings.get(
+                        "source_mode", "conversation_history"
+                    ),
+                    "max_unanswered_times": schedule_settings.get(
+                        "max_unanswered_times",
+                        auto_trigger_settings.get("max_unanswered_times", 0),
+                    ),
+                    "next_run_time": next_run_time,
+                    "unanswered_count": session_data.get("unanswered_count", 0),
+                    "manual_trigger_in_progress": normalized_session_id
+                    in self.plugin.manual_trigger_sessions,
+                    "next_trigger_time": next_trigger_time,
+                    "last_scheduled_at": session_data.get("last_scheduled_at"),
+                    "last_schedule_min_interval_seconds": session_data.get(
+                        "last_schedule_min_interval_seconds"
+                    ),
+                    "last_schedule_max_interval_seconds": session_data.get(
+                        "last_schedule_max_interval_seconds"
+                    ),
+                    "last_schedule_random_interval_seconds": session_data.get(
+                        "last_schedule_random_interval_seconds"
+                    ),
+                    "schedule_min_interval_minutes": schedule_settings.get(
+                        "min_interval_minutes"
+                    ),
+                    "schedule_max_interval_minutes": schedule_settings.get(
+                        "max_interval_minutes"
+                    ),
+                    "quiet_hours": schedule_settings.get("quiet_hours", ""),
+                    "inactive_reason": "当前没有 APScheduler 任务，可能正在等待下一次触发条件或需要重新调度",
+                }
+            )
+
+        jobs.sort(
+            key=lambda item: (
+                item.get("next_run_time") is None,
+                item.get("next_run_time") or "",
+                item.get("id") or "",
+            )
+        )
         return jobs
 
     def _list_known_sessions(self) -> list[str]:

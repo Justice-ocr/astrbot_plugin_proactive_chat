@@ -292,7 +292,7 @@
             '<div class="pc-app">',
             '<aside class="pc-sidebar">',
             '<div class="pc-brand">',
-            '<img class="pc-logo" src="./logo.png" alt="Logo">',
+            '<div class="pc-logo-mark" aria-label="主动消息"><span>主</span></div>',
             '<div><div class="pc-brand-title">主动消息</div><div class="pc-brand-subtitle">Admin Console</div></div>',
             '</div>',
             '<nav class="pc-nav">', navButton("status"), navButton("tasks"), navButton("notifications"), navButton("docs"), navButton("config"), '</nav>',
@@ -581,21 +581,26 @@
     function renderTasks() {
         var jobs = state.jobs || [];
         if (!jobs.length) {
-            $("view-tasks").innerHTML = '<div class="pc-card"><div class="pc-empty">暂无调度任务</div></div>';
+            $("view-tasks").innerHTML = '<div class="pc-card"><div class="pc-card-title">任务列表</div><div class="pc-empty">暂无调度任务或已配置会话</div></div>';
             return;
         }
         var html = ['<div class="pc-card"><div class="pc-card-header"><div><div class="pc-card-title">任务列表</div><div class="pc-card-subtitle">当前共 ', jobs.length, ' 个任务</div></div></div><div class="pc-list">'];
         for (var i = 0; i < jobs.length; i += 1) {
             var job = jobs[i] || {};
             var id = job.id || job.session || "";
+            var isPending = job.status === "pending_schedule";
+            var statusLabel = job.status_label || (isPending ? "待调度" : "已调度");
+            var nextTime = job.next_run_time || job.next_trigger_time;
+            var detailText = "下次运行: " + formatDate(timestampMs(nextTime) || nextTime) + " · 来源: " + text(job.source_mode, "--") + " · 未回复: " + text(job.unanswered_count, "0") + "/" + text(job.max_unanswered_times, "0");
+            if (job.inactive_reason) detailText += " · " + job.inactive_reason;
             html.push('<div class="pc-row">');
-            html.push('<div class="pc-row-title">', escapeHtml(job.session_display_name || job.session_name || id || "任务"), '</div>');
+            html.push('<div class="pc-row-title">', escapeHtml(job.session_display_name || job.session_name || id || "任务"), ' <span class="pc-inline-chip ', isPending ? "is-warn" : "is-ok", '">', escapeHtml(statusLabel), '</span></div>');
             html.push('<div class="pc-row-meta">UMO: ', escapeHtml(id), '</div>');
-            html.push('<div class="pc-row-meta">下次运行: ', escapeHtml(formatDate(job.next_run_time)), ' · 来源: ', escapeHtml(job.source_mode || "--"), ' · 未回复: ', escapeHtml(text(job.unanswered_count, "0")), '/', escapeHtml(text(job.max_unanswered_times, "0")), '</div>');
+            html.push('<div class="pc-row-meta">', escapeHtml(detailText), '</div>');
             html.push('<div class="pc-row-actions">');
             html.push('<button class="pc-button" data-action="trigger-job" data-id="', escapeHtml(id), '">立即触发</button>');
             html.push('<button class="pc-button secondary" data-action="reschedule-job" data-id="', escapeHtml(id), '">重新调度</button>');
-            html.push('<button class="pc-button ghost" data-action="cancel-job" data-id="', escapeHtml(id), '">取消任务</button>');
+            if (!isPending) html.push('<button class="pc-button ghost" data-action="cancel-job" data-id="', escapeHtml(id), '">取消任务</button>');
             html.push('</div></div>');
         }
         html.push('</div></div>');

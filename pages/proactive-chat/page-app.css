@@ -35,6 +35,31 @@ body.dark-theme .pc-sidebar {
     box-shadow: 0 10px 28px rgba(103, 80, 164, 0.22);
 }
 
+.pc-logo-mark {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.94), transparent 28px),
+        linear-gradient(135deg, var(--md-sys-color-primary), #14b8a6 52%, #f59e0b);
+    color: #fff;
+    box-shadow: 0 10px 28px rgba(103, 80, 164, 0.22);
+}
+
+.pc-logo-mark span {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.22);
+    font-size: 22px;
+    font-weight: 900;
+}
+
 .pc-brand-title {
     font-size: 20px;
     font-weight: 800;
@@ -304,6 +329,27 @@ body.dark-theme .pc-row {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.pc-inline-chip {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 850;
+    vertical-align: middle;
+}
+
+.pc-inline-chip.is-ok {
+    background: rgba(20, 120, 80, 0.14);
+    color: #147850;
+}
+
+.pc-inline-chip.is-warn {
+    background: rgba(180, 110, 20, 0.14);
+    color: #9a5f00;
 }
 
 .pc-timer-list {
