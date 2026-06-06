@@ -1654,6 +1654,9 @@ class WebAdminServer:
         result: list[dict[str, Any]] = []
         for session in self._list_known_sessions():
             effective = self.plugin._get_session_config(session)
+            session_data = self.plugin.session_data.get(session, {})
+            schedule_settings = (effective or {}).get("schedule_settings", {})
+            auto_trigger_settings = (effective or {}).get("auto_trigger_settings", {})
             result.append(
                 {
                     "session": session,
@@ -1670,6 +1673,28 @@ class WebAdminServer:
                     ),
                     "manual_trigger_in_progress": session
                     in self.plugin.manual_trigger_sessions,
+                    "enabled": bool(effective and effective.get("enable", False)),
+                    "session_category": self._detect_session_category(session),
+                    "next_trigger_time": session_data.get("next_trigger_time"),
+                    "last_scheduled_at": session_data.get("last_scheduled_at"),
+                    "last_schedule_min_interval_seconds": session_data.get(
+                        "last_schedule_min_interval_seconds"
+                    ),
+                    "last_schedule_max_interval_seconds": session_data.get(
+                        "last_schedule_max_interval_seconds"
+                    ),
+                    "last_schedule_random_interval_seconds": session_data.get(
+                        "last_schedule_random_interval_seconds"
+                    ),
+                    "schedule_min_interval_minutes": schedule_settings.get(
+                        "min_interval_minutes"
+                    ),
+                    "schedule_max_interval_minutes": schedule_settings.get(
+                        "max_interval_minutes"
+                    ),
+                    "auto_trigger_after_minutes": auto_trigger_settings.get(
+                        "auto_trigger_after_minutes"
+                    ),
                 }
             )
         return result

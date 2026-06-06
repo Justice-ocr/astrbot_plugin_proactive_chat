@@ -153,6 +153,25 @@
         });
     }
 
+    function timestampMs(value) {
+        if (value === null || value === undefined || value === "") return null;
+        if (typeof value === "number") {
+            return value > 100000000000 ? value : value * 1000;
+        }
+        var raw = String(value);
+        if (/^\d+(\.\d+)?$/.test(raw)) {
+            var numeric = Number(raw);
+            return numeric > 100000000000 ? numeric : numeric * 1000;
+        }
+        var date = new Date(raw);
+        return isNaN(date.getTime()) ? null : date.getTime();
+    }
+
+    function clampPercent(value) {
+        var number = Math.round(Number(value) || 0);
+        return Math.max(0, Math.min(100, number));
+    }
+
     function normalizePayload(payload) {
         if (!payload || typeof payload !== "object") return payload || {};
         if (payload.error) {
@@ -401,8 +420,11 @@
 
     function renderStatus() {
         var status = state.status || {};
-        var autoCards = asArray(status.auto_trigger_cards);
-        var groupCards = asArray(status.group_timer_cards);
+        var timerCards = collectTimerCards(status);
+        var autoCards = timerCards.auto;
+        var groupCards = timerCards.group;
+        var fallbackCards = timerCards.fallback;
+        var allCards = groupCards.concat(autoCards).concat(fallbackCards);
         $("view-status").innerHTML = [
             '<div class="pc-grid metrics">',
             metric("插件状态", status.running ? "运行中" : "已停止", "版本 " + text(status.version, "...")),
@@ -412,13 +434,14 @@
             '</div>',
             '<div class="pc-grid two">',
             '<div class="pc-card"><div class="pc-card-header"><div><div class="pc-card-title">会话计时器可视化</div><div class="pc-card-subtitle">实时展示自动触发检测与群沉默检测的倒计时、进度和会话状态。</div></div></div>',
-            renderTimerList(autoCards.concat(groupCards)), '</div>',
+            renderTimerList(allCards), '</div>',
             '<div class="pc-card"><div class="pc-card-title">调度概览</div>',
             '<div class="pc-list" style="margin-top:14px">',
             infoRow("调度器", status.scheduler_running ? "运行中" : "未启动"),
             infoRow("当前任务总数", text(status.jobs_count, "0") + " 个"),
             infoRow("自动触发计时器", autoCards.length + " 个"),
             infoRow("群沉默计时器", groupCards.length + " 个"),
+            fallbackCards.length ? infoRow("会话触发倒计时", fallbackCards.length + " 个") : "",
             infoRow("数据时间", formatDate(status.timestamp)),
             '</div></div></div>'
         ].join("");
@@ -428,14 +451,89 @@
         return '<div class="pc-row"><div class="pc-row-title">' + escapeHtml(label) + '</div><div class="pc-row-meta">' + escapeHtml(value) + '</div></div>';
     }
 
+    function collectTimerCards(status) {
+        var autoCards = asArray(status.auto_trigger_cards);
+        var groupCards = asArray(status.group_timer_cards);
+        var seen = {};
+        var fallback = [];
+        var jobs = asArray(state.jobs);
+        var sessions = asArray(state.sessions);
+
+        function mark(card) {
+            var key = String(card.timer_kind || "timer") + ":" + String(card.session_id || card.session || card.id || "");
+            if (key !== "timer:") seen[key] = true;
+        }
+        for (var a = 0; a < autoCards.length; a += 1) mark(autoCards[a] || {});
+        for (var g = 0; g < groupCards.length; g += 1) mark(groupCards[g] || {});
+
+        function pushFallback(source, kind) {
+            source = source || {};
+            var id = source.session || source.id || source.session_id || "";
+            var targetRaw = source.next_trigger_time || source.next_run_time;
+            var target = timestampMs(targetRaw);
+            if (!id || !target) return;
+            var key = kind + ":" + id;
+            if (seen[key]) return;
+            var remaining = Math.max(0, Math.ceil((target - Date.now()) / 1000));
+            var windowSeconds = Number(source.last_schedule_random_interval_seconds || source.last_schedule_max_interval_seconds || 0);
+            if (!windowSeconds && source.schedule_max_interval_minutes) windowSeconds = Number(source.schedule_max_interval_minutes) * 60;
+            var started = timestampMs(source.last_scheduled_at);
+            var progress = 0;
+            if (started && target > started) {
+                progress = clampPercent(((Date.now() - started) / (target - started)) * 100);
+            } else if (windowSeconds > 0) {
+                progress = clampPercent(((windowSeconds - remaining) / windowSeconds) * 100);
+            }
+            fallback.push({
+                session_id: id,
+                session: id,
+                session_name: source.session_name,
+                session_display_name: source.session_display_name,
+                session_category: source.session_category,
+                timer_kind: kind,
+                timer_kind_label: kind === "scheduled_job" ? "调度任务" : "下次触发",
+                status: remaining <= 0 ? "expired" : "running",
+                remaining_seconds: remaining,
+                target_time: target / 1000,
+                window_seconds: windowSeconds,
+                progress_percent: progress,
+                unanswered_count: source.unanswered_count,
+                max_unanswered_times: source.max_unanswered_times
+            });
+            seen[key] = true;
+        }
+
+        for (var j = 0; j < jobs.length; j += 1) pushFallback(jobs[j], "scheduled_job");
+        for (var s = 0; s < sessions.length; s += 1) pushFallback(sessions[s], "session_next_trigger");
+        fallback.sort(function (left, right) {
+            return Number(left.remaining_seconds || 0) - Number(right.remaining_seconds || 0);
+        });
+        return { auto: autoCards, group: groupCards, fallback: fallback };
+    }
+
+    function timerStatusLabel(item) {
+        if (!item.target_time && item.remaining_seconds === null) return "待确认";
+        if (Number(item.remaining_seconds || 0) <= 0) return "待刷新";
+        if (Number(item.remaining_seconds || 0) <= 300) return "即将触发";
+        return "计时中";
+    }
+
     function renderTimerList(items) {
         if (!items.length) return '<div class="pc-empty">🫧 暂无运行中的会话计时器</div>';
-        var html = ['<div class="pc-list">'];
+        var html = ['<div class="pc-timer-list">'];
         for (var i = 0; i < items.length; i += 1) {
             var item = items[i] || {};
-            html.push('<div class="pc-row">');
-            html.push('<div class="pc-row-title">', escapeHtml(item.session_display_name || item.session_name || item.session || item.id || "会话"), '</div>');
-            html.push('<div class="pc-row-meta">', escapeHtml(item.timer_kind_label || item.timer_kind || "计时器"), ' · 剩余 ', escapeHtml(formatDuration(item.remaining_seconds)), ' · 进度 ', escapeHtml(text(item.progress_percent, "0")), '%</div>');
+            var progress = clampPercent(item.progress_percent);
+            var remaining = item.remaining_seconds === null || item.remaining_seconds === undefined ? "--" : formatDuration(item.remaining_seconds);
+            var targetText = item.target_time ? formatDate(Number(item.target_time) * 1000) : "--";
+            html.push('<div class="pc-timer-card">');
+            html.push('<div class="pc-timer-top"><div><div class="pc-row-title">', escapeHtml(item.session_display_name || item.session_name || item.session || item.session_id || item.id || "会话"), '</div>');
+            html.push('<div class="pc-row-meta">', escapeHtml(item.session_id || item.session || item.id || ""), '</div></div>');
+            html.push('<span class="pc-chip ', Number(item.remaining_seconds || 0) <= 300 ? "is-warn" : "is-ok", '">', escapeHtml(timerStatusLabel(item)), '</span></div>');
+            html.push('<div class="pc-timer-countdown">', escapeHtml(remaining), '<span> 后触发</span></div>');
+            html.push('<div class="pc-row-meta">', escapeHtml(item.timer_kind_label || item.title || item.timer_kind || "计时器"), ' · 目标时间 ', escapeHtml(targetText), ' · 未回复 ', escapeHtml(text(item.unanswered_count, "0")), '/', escapeHtml(text(item.max_unanswered_times, "0")), '</div>');
+            html.push('<div class="pc-progress"><div style="width:', progress, '%"></div></div>');
+            html.push('<div class="pc-row-meta">进度 ', progress, '%', item.window_seconds ? ' · 窗口 ' + escapeHtml(formatDuration(item.window_seconds)) : '', '</div>');
             html.push('</div>');
         }
         html.push('</div>');
@@ -1091,6 +1189,7 @@
         setInterval(function () {
             var node = $("pc-clock");
             if (node) node.textContent = formatDate(new Date());
+            if (state.view === "status" && $("view-status")) renderStatus();
         }, 1000);
     }
 

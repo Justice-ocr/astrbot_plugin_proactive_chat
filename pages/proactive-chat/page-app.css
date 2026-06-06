@@ -306,6 +306,57 @@ body.dark-theme .pc-row {
     flex-wrap: wrap;
 }
 
+.pc-timer-list {
+    display: grid;
+    gap: 14px;
+}
+
+.pc-timer-card {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.46);
+}
+
+body.dark-theme .pc-timer-card {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.pc-timer-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pc-timer-countdown {
+    font-size: 30px;
+    font-weight: 900;
+    color: var(--md-sys-color-primary);
+}
+
+.pc-timer-countdown span {
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.pc-progress {
+    height: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(103, 80, 164, 0.14);
+}
+
+.pc-progress > div {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--md-sys-color-primary), #0F7A43);
+    transition: width .25s ease;
+}
+
 .pc-button {
     min-height: 38px;
     padding: 0 14px;
