@@ -25,7 +25,9 @@
         selectedMarkdownPath: "",
         markdownDocument: null,
         theme: safeStorageGet("theme") || "light",
-        busy: {}
+        busy: {},
+        realtimeTimer: null,
+        lastRealtimeAt: 0
     };
 
     var viewMeta = {
@@ -170,6 +172,25 @@
     function clampPercent(value) {
         var number = Math.round(Number(value) || 0);
         return Math.max(0, Math.min(100, number));
+    }
+
+    function stableJson(value) {
+        if (Array.isArray(value)) {
+            return "[" + value.map(stableJson).join(",") + "]";
+        }
+        if (value && typeof value === "object") {
+            var keys = Object.keys(value).sort();
+            var parts = [];
+            for (var i = 0; i < keys.length; i += 1) {
+                parts.push(JSON.stringify(keys[i]) + ":" + stableJson(value[keys[i]]));
+            }
+            return "{" + parts.join(",") + "}";
+        }
+        return JSON.stringify(value);
+    }
+
+    function sameConfigValue(left, right) {
+        return stableJson(left || {}) === stableJson(right || {});
     }
 
     function normalizePayload(payload) {
@@ -383,6 +404,7 @@
             '<div class="pc-topbar-actions">',
             '<span class="pc-chip">🕒 <span id="pc-clock">', escapeHtml(formatDate(new Date())), '</span></span>',
             '<span class="pc-chip ', connected ? "is-ok" : "is-warn", '">', connected ? "已连接 Pages bridge" : "未连接 Pages bridge", '</span>',
+            '<span class="pc-chip">同步 ', state.lastRealtimeAt ? escapeHtml(formatDate(state.lastRealtimeAt)) : '--', '</span>',
             '<span class="pc-chip">WebSocket ', Number(status.ws_connections || 0), ' 个</span>',
             '<button class="pc-icon-button" data-action="refresh" title="刷新">↻</button>',
             '<button class="pc-icon-button" data-action="theme" title="切换主题">', state.theme === "dark" ? "☀" : "🌙", '</button>',
@@ -617,21 +639,72 @@
     }
 
     function renderMarkdown(markdown) {
-        var escaped = escapeHtml(markdown || "");
-        escaped = escaped.replace(/^### (.*)$/gm, "<h3>$1</h3>");
-        escaped = escaped.replace(/^## (.*)$/gm, "<h2>$1</h2>");
-        escaped = escaped.replace(/^# (.*)$/gm, "<h1>$1</h1>");
-        escaped = escaped.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-        escaped = escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
-        var lines = escaped.split(/\n{2,}/);
+        var source = String(markdown || "").replace(/\r\n/g, "\n");
+        var blocks = source.split(/\n{2,}/);
         var out = [];
-        for (var i = 0; i < lines.length; i += 1) {
-            var block = lines[i];
-            if (/^\s*<h[1-3]/.test(block) || /^\s*<pre/.test(block)) {
-                out.push(block);
-            } else {
-                out.push("<p>" + block.replace(/\n/g, "<br>") + "</p>");
+
+        function inline(value) {
+            return escapeHtml(value)
+                .replace(/`([^`]+)`/g, "<code>$1</code>")
+                .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+                .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        }
+
+        function renderTable(block) {
+            var rows = block.split("\n");
+            if (rows.length < 2 || rows[0].indexOf("|") < 0 || !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(rows[1])) return "";
+            var headers = rows[0].split("|").map(function (cell) { return cell.trim(); }).filter(Boolean);
+            var body = rows.slice(2);
+            var html = ['<div class="pc-table-wrap"><table><thead><tr>'];
+            for (var h = 0; h < headers.length; h += 1) html.push("<th>", inline(headers[h]), "</th>");
+            html.push("</tr></thead><tbody>");
+            for (var r = 0; r < body.length; r += 1) {
+                if (!body[r].trim()) continue;
+                var cells = body[r].split("|").map(function (cell) { return cell.trim(); }).filter(function (cell, idx, arr) {
+                    return !(idx === 0 && cell === "") && !(idx === arr.length - 1 && cell === "");
+                });
+                html.push("<tr>");
+                for (var c = 0; c < headers.length; c += 1) html.push("<td>", inline(cells[c] || ""), "</td>");
+                html.push("</tr>");
             }
+            html.push("</tbody></table></div>");
+            return html.join("");
+        }
+
+        for (var i = 0; i < blocks.length; i += 1) {
+            var block = blocks[i];
+            var table = renderTable(block);
+            if (table) {
+                out.push(table);
+                continue;
+            }
+            var fence = block.match(/^```([\w-]*)\n([\s\S]*?)```$/);
+            if (fence) {
+                out.push('<pre><code data-language="' + escapeHtml(fence[1] || "text") + '">' + escapeHtml(fence[2]) + "</code></pre>");
+                continue;
+            }
+            if (/^###\s+/.test(block)) {
+                out.push("<h3>" + inline(block.replace(/^###\s+/, "")) + "</h3>");
+                continue;
+            }
+            if (/^##\s+/.test(block)) {
+                out.push("<h2>" + inline(block.replace(/^##\s+/, "")) + "</h2>");
+                continue;
+            }
+            if (/^#\s+/.test(block)) {
+                out.push("<h1>" + inline(block.replace(/^#\s+/, "")) + "</h1>");
+                continue;
+            }
+            if (/^\s*[-*]\s+/m.test(block)) {
+                var items = block.split("\n").filter(Boolean);
+                out.push("<ul>" + items.map(function (line) { return "<li>" + inline(line.replace(/^\s*[-*]\s+/, "")) + "</li>"; }).join("") + "</ul>");
+                continue;
+            }
+            if (/^\s*>\s+/m.test(block)) {
+                out.push("<blockquote>" + inline(block.replace(/^\s*>\s?/gm, "")).replace(/\n/g, "<br>") + "</blockquote>");
+                continue;
+            }
+            out.push("<p>" + inline(block).replace(/\n/g, "<br>") + "</p>");
         }
         return out.join("");
     }
@@ -1001,10 +1074,7 @@
             return;
         }
         apiGet(route("dashboard")).then(function (data) {
-            state.status = data.status || state.status || {};
-            state.jobs = asArray(data.jobs);
-            state.sessions = asArray(data.sessions);
-            state.notificationsMeta = data.notifications_meta || state.notificationsMeta || {};
+            applyDashboardPayload(data);
             setError("");
             render();
         }).catch(function () {
@@ -1018,6 +1088,39 @@
                 setError(err.message || "加载状态失败");
             });
         });
+    }
+
+    function applyDashboardPayload(data) {
+        data = data || {};
+        state.status = data.status || state.status || {};
+        state.jobs = asArray(data.jobs);
+        state.sessions = asArray(data.sessions);
+        state.notificationsMeta = data.notifications_meta || state.notificationsMeta || {};
+        state.lastRealtimeAt = Date.now();
+    }
+
+    function loadRealtimeSnapshot() {
+        if (!state.bridgeReady || !state.bridge) return;
+        if (document.visibilityState === "hidden") return;
+        if (state.busy.configSave || state.busy.sessionSave) return;
+        if (state.view === "config" || state.view === "docs") return;
+        apiGet(route("dashboard")).then(function (data) {
+            applyDashboardPayload(data);
+            if (state.view === "status" || state.view === "tasks") render();
+        }).catch(function () {
+            Promise.all([apiGet(route("status")), apiGet(route("jobs")), apiGet(route("session-config/sessions"))]).then(function (parts) {
+                state.status = parts[0] || state.status || {};
+                state.jobs = asArray(parts[1].jobs || parts[1]);
+                state.sessions = asArray(parts[2].sessions || parts[2]);
+                state.lastRealtimeAt = Date.now();
+                if (state.view === "status" || state.view === "tasks") render();
+            }).catch(function () {});
+        });
+    }
+
+    function initRealtimeSync() {
+        if (state.realtimeTimer) return;
+        state.realtimeTimer = setInterval(loadRealtimeSnapshot, 1000);
     }
 
     function loadJobs() {
@@ -1145,10 +1248,22 @@
                 if (!data || data.received !== true) {
                     throw new Error("保存请求没有命中新后端 save_config 接口，请重载插件后再试");
                 }
-                state.config = data && data.config ? data.config : cleaned;
-                setFeedback("success", "全局配置已保存，后端已确认。");
-                setError("");
-                render();
+                return apiGet(route("get_config")).then(function (serverConfig) {
+                    var mismatched = [];
+                    var keys = ["friend_settings", "group_settings", "web_admin", "notification_settings"];
+                    for (var i = 0; i < keys.length; i += 1) {
+                        if (!sameConfigValue(serverConfig && serverConfig[keys[i]], payload[keys[i]])) {
+                            mismatched.push(keys[i]);
+                        }
+                    }
+                    if (mismatched.length) {
+                        throw new Error("保存请求已到后端，但配置回读不一致: " + mismatched.join(", "));
+                    }
+                    state.config = serverConfig || cleaned;
+                    setFeedback("success", "全局配置已保存，后端回读校验通过。");
+                    setError("");
+                    render();
+                });
             }).catch(function (err) {
                 setFeedback("error", err.message || "配置保存失败");
                 setError(err.message);
@@ -1247,6 +1362,7 @@
             Promise.resolve(typeof bridge.ready === "function" ? bridge.ready() : null).then(function () {
                 state.bridgeReady = true;
                 loadDashboard();
+                initRealtimeSync();
             }).catch(function (err) {
                 state.bridgeReady = false;
                 setError(err.message || "AstrBot Pages bridge 初始化失败");

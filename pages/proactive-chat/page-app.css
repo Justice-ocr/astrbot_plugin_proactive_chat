@@ -713,6 +713,59 @@ body.dark-theme .pc-config-group {
     background: rgba(103, 80, 164, 0.1);
 }
 
+.pc-doc-body code {
+    padding: 2px 5px;
+    border-radius: 6px;
+    background: rgba(103, 80, 164, 0.12);
+    font-size: .92em;
+}
+
+.pc-doc-body pre code {
+    display: block;
+    padding: 0;
+    background: transparent;
+    white-space: pre;
+}
+
+.pc-doc-body blockquote {
+    margin: 0 0 1em;
+    padding: 10px 14px;
+    border-left: 4px solid var(--md-sys-color-primary);
+    border-radius: 8px;
+    background: rgba(103, 80, 164, 0.08);
+}
+
+.pc-doc-body a {
+    color: var(--md-sys-color-primary);
+    font-weight: 700;
+}
+
+.pc-table-wrap {
+    overflow: auto;
+    margin: 0 0 1em;
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+}
+
+.pc-doc-body table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 520px;
+}
+
+.pc-doc-body th,
+.pc-doc-body td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--glass-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.pc-doc-body th {
+    background: rgba(103, 80, 164, 0.1);
+    font-weight: 850;
+}
+
 .pc-footer-note {
     margin-top: 12px;
     color: var(--md-sys-color-on-surface-variant);
