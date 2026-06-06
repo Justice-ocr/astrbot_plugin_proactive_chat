@@ -541,7 +541,11 @@
     }
 
     function timerStatusLabel(item) {
-        if (!item.target_time && item.remaining_seconds === null) return "待确认";
+        if (item.status === "waiting_message") return "等待消息";
+        if (item.status === "waiting_idle") return "等待空闲";
+        if (item.status === "pending_timer") return "未挂起";
+        if (item.status === "unknown") return "待确认";
+        if (item.remaining_seconds === null || item.remaining_seconds === undefined) return "未启动";
         if (Number(item.remaining_seconds || 0) <= 0) return "待刷新";
         if (Number(item.remaining_seconds || 0) <= 300) return "即将触发";
         return "计时中";
@@ -553,14 +557,19 @@
         for (var i = 0; i < items.length; i += 1) {
             var item = items[i] || {};
             var progress = clampPercent(item.progress_percent);
-            var remaining = item.remaining_seconds === null || item.remaining_seconds === undefined ? "--" : formatDuration(item.remaining_seconds);
+            var hasCountdown = item.remaining_seconds !== null && item.remaining_seconds !== undefined;
+            var remaining = hasCountdown ? formatDuration(item.remaining_seconds) : (item.status === "waiting_message" ? "等待消息" : "--");
+            var countdownSuffix = hasCountdown ? " 后触发" : (item.status === "waiting_message" ? " 后开始" : " 待启动");
             var targetText = item.target_time ? formatDate(Number(item.target_time) * 1000) : "--";
-            html.push('<div class="pc-timer-card">');
+            var chipClass = hasCountdown && Number(item.remaining_seconds || 0) > 300 ? "is-ok" : "is-warn";
+            var detailText = (item.timer_kind_label || item.title || item.timer_kind || "计时器") + " · 目标时间 " + targetText + " · 未回复 " + text(item.unanswered_count, "0") + "/" + text(item.max_unanswered_times, "0");
+            if (item.inactive_reason) detailText += " · " + item.inactive_reason;
+            html.push('<div class="pc-timer-card ', hasCountdown ? "" : "is-pending", '">');
             html.push('<div class="pc-timer-top"><div><div class="pc-row-title">', escapeHtml(item.session_display_name || item.session_name || item.session || item.session_id || item.id || "会话"), '</div>');
             html.push('<div class="pc-row-meta">', escapeHtml(item.session_id || item.session || item.id || ""), '</div></div>');
-            html.push('<span class="pc-chip ', Number(item.remaining_seconds || 0) <= 300 ? "is-warn" : "is-ok", '">', escapeHtml(timerStatusLabel(item)), '</span></div>');
-            html.push('<div class="pc-timer-countdown">', escapeHtml(remaining), '<span> 后触发</span></div>');
-            html.push('<div class="pc-row-meta">', escapeHtml(item.timer_kind_label || item.title || item.timer_kind || "计时器"), ' · 目标时间 ', escapeHtml(targetText), ' · 未回复 ', escapeHtml(text(item.unanswered_count, "0")), '/', escapeHtml(text(item.max_unanswered_times, "0")), '</div>');
+            html.push('<span class="pc-chip ', chipClass, '">', escapeHtml(timerStatusLabel(item)), '</span></div>');
+            html.push('<div class="pc-timer-countdown">', escapeHtml(remaining), '<span>', escapeHtml(countdownSuffix), '</span></div>');
+            html.push('<div class="pc-row-meta">', escapeHtml(detailText), '</div>');
             html.push('<div class="pc-progress"><div style="width:', progress, '%"></div></div>');
             html.push('<div class="pc-row-meta">进度 ', progress, '%', item.window_seconds ? ' · 窗口 ' + escapeHtml(formatDuration(item.window_seconds)) : '', '</div>');
             html.push('</div>');

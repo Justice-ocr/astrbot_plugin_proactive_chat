@@ -324,6 +324,14 @@ body.dark-theme .pc-timer-card {
     background: rgba(255, 255, 255, 0.05);
 }
 
+.pc-timer-card.is-pending {
+    border-style: dashed;
+}
+
+.pc-timer-card.is-pending .pc-timer-countdown {
+    color: var(--md-sys-color-on-surface-variant);
+}
+
 .pc-timer-top {
     display: flex;
     align-items: flex-start;

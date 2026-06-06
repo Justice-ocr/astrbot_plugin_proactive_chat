@@ -1556,6 +1556,115 @@ class WebAdminServer:
             )
 
         # 统一按剩余时间升序排序，让最接近触发的卡片优先显示。
+        live_auto_sessions = {
+            str(card.get("session_id", "")) for card in auto_cards if card.get("session_id")
+        }
+        live_group_sessions = {
+            str(card.get("session_id", ""))
+            for card in group_cards
+            if card.get("session_id")
+        }
+
+        # Expose configured sessions even when no asyncio timer handle is currently
+        # registered. Without these placeholders the Pages dashboard looks empty,
+        # while the real state is often "waiting for the first message/event".
+        for session_id in self._list_known_sessions():
+            normalized_session_id = self.plugin._normalize_session_id(str(session_id))
+            session_config = self.plugin._get_session_config(normalized_session_id)
+            if not session_config or not session_config.get("enable", False):
+                continue
+
+            session_category = self._detect_session_category(normalized_session_id)
+            session_data = self.plugin.session_data.get(
+                normalized_session_id, self.plugin.session_data.get(str(session_id), {})
+            )
+            schedule_settings = session_config.get("schedule_settings", {})
+            context_settings = session_config.get("context_settings", {})
+            common_payload = {
+                "session_id": normalized_session_id,
+                "session_name": self.plugin._get_session_name(
+                    normalized_session_id, session_config
+                ),
+                "session_display_name": self.plugin._get_session_display_name(
+                    normalized_session_id, session_config
+                ),
+                "session_category": session_category,
+                "source_mode": context_settings.get(
+                    "source_mode",
+                    "platform_message_history"
+                    if session_category == "group"
+                    else "conversation_history",
+                ),
+                "max_unanswered_times": schedule_settings.get(
+                    "max_unanswered_times", 0
+                ),
+                "remaining_seconds": None,
+                "target_time": None,
+                "progress_percent": 0,
+                "unanswered_count": session_data.get("unanswered_count", 0),
+            }
+
+            if session_category == "group":
+                if normalized_session_id in live_group_sessions:
+                    continue
+
+                idle_minutes = int(
+                    session_config.get("group_idle_trigger_minutes", 0) or 0
+                )
+                if idle_minutes <= 0:
+                    continue
+
+                group_cards.append(
+                    {
+                        **common_payload,
+                        "timer_kind": "group_silence",
+                        "title": "群沉默检测",
+                        "timer_kind_label": "群沉默检测",
+                        "status": "waiting_message",
+                        "window_seconds": idle_minutes * 60,
+                        "group_idle_trigger_minutes": idle_minutes,
+                        "last_message_time": self.plugin.last_message_times.get(
+                            normalized_session_id
+                        )
+                        or None,
+                        "inactive_reason": "等待群聊新消息后开始沉默倒计时",
+                        "is_live_group_timer": False,
+                    }
+                )
+                live_group_sessions.add(normalized_session_id)
+                continue
+
+            if normalized_session_id in live_auto_sessions:
+                continue
+
+            auto_settings = session_config.get("auto_trigger_settings", {})
+            if not auto_settings.get("enable_auto_trigger", False):
+                continue
+
+            trigger_delay_minutes = int(
+                auto_settings.get("auto_trigger_after_minutes", 0) or 0
+            )
+            if trigger_delay_minutes <= 0:
+                continue
+
+            last_message_time = self.plugin.last_message_times.get(
+                normalized_session_id
+            ) or self.plugin.last_message_times.get(str(session_id), 0)
+            auto_cards.append(
+                {
+                    **common_payload,
+                    "timer_kind": "auto_trigger",
+                    "title": "自动触发检测",
+                    "timer_kind_label": "自动触发检测",
+                    "status": "waiting_idle" if last_message_time else "pending_timer",
+                    "window_seconds": trigger_delay_minutes * 60,
+                    "auto_trigger_after_minutes": trigger_delay_minutes,
+                    "last_message_time": last_message_time or None,
+                    "inactive_reason": "当前没有运行中的自动触发计时器，等待运行时注册或下一次消息事件",
+                }
+            )
+            live_auto_sessions.add(normalized_session_id)
+
         auto_cards.sort(
             key=lambda item: (
                 item.get("remaining_seconds") is None,
