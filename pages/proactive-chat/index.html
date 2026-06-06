@@ -30,6 +30,33 @@
             var message = reason && reason.message ? reason.message : "页面初始化失败";
             window.showProactiveBootError(message);
         });
+        (function () {
+            var originalDefine = window.define;
+            var originalAmd = originalDefine && originalDefine.amd;
+
+            window.__PROACTIVE_RESTORE_AMD_DEFINE = function () {
+                try {
+                    if (originalDefine) {
+                        window.define = originalDefine;
+                        originalDefine.amd = originalAmd;
+                    } else {
+                        delete window.define;
+                    }
+                } catch (e) {
+                    window.define = originalDefine;
+                }
+            };
+
+            if (originalDefine && originalDefine.amd) {
+                try {
+                    window.define = undefined;
+                } catch (e) {
+                    try {
+                        originalDefine.amd = undefined;
+                    } catch (ignored) {}
+                }
+            }
+        })();
     </script>
 </head>
 
@@ -56,6 +83,11 @@
     <script src="./vendor/purify.min.js"></script>
     <script src="./vendor/mermaid.min.js"></script>
     <script src="./app.js"></script>
+    <script>
+        if (typeof window.__PROACTIVE_RESTORE_AMD_DEFINE === "function") {
+            window.__PROACTIVE_RESTORE_AMD_DEFINE();
+        }
+    </script>
     <script>
         (function () {
             function proceed() {
