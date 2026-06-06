@@ -57,4 +57,4 @@ for (const relativePath of sourceFiles) {
   chunks.push(`\n/* ${relativePath} */\n${transformed.trimEnd()}\n`);
 }
 
-await fs.writeFile(path.join(pageRoot, "app.js"), `${chunks.join("\n").trimEnd()}\n`, "utf8");
+await fs.writeFile(path.join(pageRoot, "app.bundle.js"), `${chunks.join("\n").trimEnd()}\n`, "utf8");

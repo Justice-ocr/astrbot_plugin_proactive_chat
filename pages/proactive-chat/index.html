@@ -14,6 +14,8 @@
         window.__PROACTIVE_AUTH_PENDING = false;
         window.__PROACTIVE_AUTH_READY = true;
         window.__PROACTIVE_APP_MOUNTED = false;
+        window.__PROACTIVE_REACT_RENDER_REQUESTED = false;
+        window.__PROACTIVE_WEBUI_INITIALIZED = false;
         window.__PROACTIVE_BOOT_STAGE = "bootstrap";
         window.showProactiveBootError = function (msg) {
             console.error("[ProactivePage] " + msg);
@@ -189,7 +191,7 @@
     <script>window.setProactiveBootStage("dompurify");</script>
     <script src="./vendor/purify.min.js" onerror="window.proactiveScriptLoadError('dompurify')"></script>
     <script>window.setProactiveBootStage("app");</script>
-    <script src="./app.js" onerror="window.proactiveScriptLoadError('app')"></script>
+    <script src="./app.bundle.js" onerror="window.proactiveScriptLoadError('app.bundle')"></script>
     <script>
         if (typeof window.__PROACTIVE_RESTORE_AMD_DEFINE === "function") {
             window.__PROACTIVE_RESTORE_AMD_DEFINE();
