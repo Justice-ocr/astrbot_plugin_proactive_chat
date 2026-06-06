@@ -289,14 +289,19 @@
             }
 
             async function callBridge() {
-                const bridge = window.AstrBotPlugin || window.parent && window.parent.AstrBotPlugin;
-                if (bridge && typeof bridge.callApi === 'function') {
-                    return bridge.callApi(apiPath, { method: 'GET' });
+                const bridge = window.AstrBotPluginPage;
+                if (bridge && typeof bridge.apiGet === 'function') {
+                    if (typeof bridge.ready === 'function') {
+                        await bridge.ready();
+                    }
+                    return bridge.apiGet('dashboard');
                 }
 
                 const candidates = [
+                    `/api/plug/${pluginName}/dashboard`,
                     `/api/plugin/${pluginName}${apiPath}`,
                     `/api/plugins/${pluginName}${apiPath}`,
+                    '/api/embedded-dashboard',
                     `/api/plugin/${pluginName}/embedded-dashboard`,
                     `/api/plugins/${pluginName}/embedded-dashboard`,
                 ];

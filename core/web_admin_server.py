@@ -54,11 +54,7 @@ def _patch_starlette_router_startup_kwargs() -> None:
         logger.debug(f"[主动消息] 读取 Starlette Router 签名失败喵: {e}")
         return
 
-    unsupported = {
-        name
-        for name in ("on_startup", "on_shutdown")
-        if name not in params
-    }
+    unsupported = {name for name in ("on_startup", "on_shutdown") if name not in params}
     if not unsupported:
         return
 
@@ -69,9 +65,7 @@ def _patch_starlette_router_startup_kwargs() -> None:
 
     patched_init._proactive_chat_startup_patch = True
     Router.__init__ = patched_init
-    logger.info(
-        "[主动消息] 已应用 FastAPI / Starlette Router 启动参数兼容补丁喵。"
-    )
+    logger.info("[主动消息] 已应用 FastAPI / Starlette Router 启动参数兼容补丁喵。")
 
 
 def _is_running_in_docker() -> bool:
@@ -98,7 +92,9 @@ def _is_running_in_docker() -> bool:
 class WebAdminServer:
     """主动消息插件 Web 管理端服务器。"""
 
-    ASTRBOT_PAGE_API_PATH = "/proactive-chat/dashboard"
+    ASTRBOT_PLUGIN_NAME = "astrbot_plugin_proactive_chat"
+    ASTRBOT_PAGE_API_ENDPOINT = "dashboard"
+    ASTRBOT_PAGE_API_PATH = f"/{ASTRBOT_PLUGIN_NAME}/{ASTRBOT_PAGE_API_ENDPOINT}"
 
     def __init__(self, plugin: Any):
         # plugin 是主插件实例，Web 端所有状态与操作都通过它间接访问。
@@ -157,6 +153,12 @@ class WebAdminServer:
 
         # AstrBot 不同版本的 register_web_api 签名可能略有差异，按常见形态逐个尝试。
         attempts = (
+            lambda: register(
+                self.ASTRBOT_PAGE_API_PATH,
+                dashboard_payload,
+                ["GET"],
+                "Proactive chat dashboard",
+            ),
             lambda: register(
                 self.ASTRBOT_PAGE_API_PATH, dashboard_payload, methods=["GET"]
             ),
