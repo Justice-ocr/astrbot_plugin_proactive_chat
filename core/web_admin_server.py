@@ -106,6 +106,7 @@ class WebAdminServer:
         self.plugin = plugin
         # 直接缓存配置引用，便于路由中统一读写。
         self.config = plugin.config
+        self._native_config = self.config if hasattr(self.config, "save_config") else None
         # FastAPI 应用实例，仅在依赖存在且初始化成功时设置。
         self.app: FastAPI | None = None
         # Uvicorn Server 实例，用于控制启动与停止。
@@ -238,7 +239,29 @@ class WebAdminServer:
             payload = await quart_request.get_json(silent=True)
         except Exception:
             payload = None
-        return payload if isinstance(payload, dict) else {}
+        return self._unwrap_page_payload(payload)
+
+    def _unwrap_page_payload(self, payload: Any) -> dict[str, Any]:
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                return {}
+        if not isinstance(payload, dict):
+            return {}
+
+        for key in ("body", "data", "payload"):
+            if set(payload.keys()) != {key}:
+                continue
+            nested = payload.get(key)
+            if isinstance(nested, str):
+                try:
+                    nested = json.loads(nested)
+                except Exception:
+                    return {}
+            if isinstance(nested, dict):
+                return nested
+        return payload
 
     def _get_astrbot_page_method(self) -> str:
         if quart_request is None:
@@ -506,32 +529,10 @@ class WebAdminServer:
 
         @self.app.post("/api/config")
         async def update_config(payload: dict[str, Any]):
-            # 仅允许更新已知一级配置块，避免前端误写其它未知字段。
-            allowed_keys = {
-                "friend_settings",
-                "group_settings",
-                "web_admin",
-                "notification_settings",
-            }
-            for key in allowed_keys:
-                if key not in payload:
-                    continue
-                if key == "web_admin":
-                    # web_admin 采用增量合并，避免未提交字段被整个覆盖掉。
-                    old = dict(self.config.get("web_admin", {}))
-                    old.update(payload.get("web_admin", {}))
-                    # 密码字段允许显式更新，但不会通过 get_config 回传给前端。
-                    if "password" in payload.get("web_admin", {}):
-                        old["password"] = payload["web_admin"]["password"]
-                    self.config["web_admin"] = old
-                else:
-                    # friend / group 配置块按前端提交的完整对象直接替换。
-                    self.config[key] = payload[key]
-
-            self._save_plugin_config()
-            # 配置变更后立即广播，确保所有已打开页面实时刷新。
-            await self._broadcast_update("config")
-            return {"ok": True}
+            result = await self._apply_config_payload(payload)
+            if not result.get("ok", False):
+                return JSONResponse(result, status_code=400)
+            return result
 
         @self.app.get("/api/session-config/sessions")
         async def list_session_configs():
@@ -960,13 +961,31 @@ class WebAdminServer:
                 if websocket in self._ws_connections:
                     self._ws_connections.remove(websocket)
 
-    def _save_plugin_config(self) -> None:
+    def _set_config_section(self, key: str, value: Any) -> None:
+        self.config[key] = value
+
+    def _save_plugin_config(self) -> tuple[bool, str | None]:
         try:
             # AstrBot 配置对象通常提供 save_config 方法，这里做鸭子类型兼容。
-            if hasattr(self.config, "save_config"):
-                self.config.save_config()
+            native = self._native_config or (
+                self.config if hasattr(self.config, "save_config") else None
+            )
+            if native is not None:
+                if native is not self.config:
+                    native.clear()
+                    native.update(self.config)
+                native.save_config()
+
+            context = getattr(self.plugin, "context", None)
+            update_config = getattr(context, "update_config", None)
+            if callable(update_config):
+                updated = update_config(self.config)
+                if inspect.isawaitable(updated):
+                    asyncio.create_task(updated)
+            return True, None
         except Exception as e:
             logger.warning(f"[主动消息] 保存配置失败喵: {e}")
+            return False, str(e)
 
     def _issue_token(self) -> str:
         # 生成适合放入 URL / Header 的安全随机 token。
@@ -1002,27 +1021,40 @@ class WebAdminServer:
         }
 
     async def _apply_config_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = self._unwrap_page_payload(payload)
         allowed_keys = {
             "friend_settings",
             "group_settings",
             "web_admin",
             "notification_settings",
         }
+        changed = False
         for key in allowed_keys:
             if key not in payload:
                 continue
+            if key != "web_admin" and not isinstance(payload[key], dict):
+                return {"ok": False, "error": f"{key} must be an object"}
             if key == "web_admin":
+                if not isinstance(payload.get("web_admin"), dict):
+                    return {"ok": False, "error": "web_admin must be an object"}
                 old = dict(self.config.get("web_admin", {}))
                 old.update(payload.get("web_admin", {}))
                 if "password" in payload.get("web_admin", {}):
                     old["password"] = payload["web_admin"]["password"]
-                self.config["web_admin"] = old
+                self._set_config_section("web_admin", old)
             else:
-                self.config[key] = payload[key]
+                self._set_config_section(key, payload[key])
+            changed = True
 
-        self._save_plugin_config()
+        if not changed:
+            return {"ok": False, "error": "No supported config keys received"}
+
+        saved, error = self._save_plugin_config()
+        if not saved:
+            return {"ok": False, "error": error or "Config save failed"}
+        self._auth_enabled = bool(self.config.get("web_admin", {}).get("password", ""))
         await self._broadcast_update("config")
-        return {"ok": True}
+        return {"ok": True, "config": self._build_config_payload()}
 
     async def _load_config_schema_payload(self) -> dict[str, Any]:
         schema_path = Path(__file__).resolve().parent.parent / "_conf_schema.json"

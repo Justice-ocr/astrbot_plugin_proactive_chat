@@ -1119,11 +1119,15 @@
                 notification_settings: cleaned.notification_settings
             };
             apiPost(route("config"), payload).then(function (data) {
-                state.config = cleaned;
+                state.config = data && data.config ? data.config : cleaned;
                 setFeedback("success", "全局配置已保存。");
                 setError("");
                 render();
-            }).catch(function (err) { setError(err.message); });
+                if (!data || !data.config) loadConfig();
+            }).catch(function (err) {
+                setFeedback("error", err.message || "配置保存失败");
+                setError(err.message);
+            });
         } catch (e) {
             setError("JSON 格式错误: " + e.message);
         }
@@ -1165,7 +1169,10 @@
                 setFeedback("success", "会话差异配置已保存。");
                 setError("");
                 render();
-            }).catch(function (err) { setError(err.message); });
+            }).catch(function (err) {
+                setFeedback("error", err.message || "会话配置保存失败");
+                setError(err.message);
+            });
         } catch (e) {
             setError("JSON 格式错误: " + e.message);
         }
