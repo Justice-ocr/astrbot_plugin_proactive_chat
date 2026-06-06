@@ -176,10 +176,18 @@ class SchedulerMixin:
         return changed
 
     def _get_schedule_bounds(self, schedule_conf: dict) -> tuple[int, int]:
-        min_interval = int(schedule_conf.get("min_interval_minutes", 30)) * 60
-        max_interval = max(
-            min_interval, int(schedule_conf.get("max_interval_minutes", 900)) * 60
-        )
+        try:
+            min_minutes = int(schedule_conf.get("min_interval_minutes", 30))
+        except (TypeError, ValueError):
+            min_minutes = 30
+        try:
+            max_minutes = int(schedule_conf.get("max_interval_minutes", 900))
+        except (TypeError, ValueError):
+            max_minutes = 900
+        min_minutes = max(1, min_minutes)
+        max_minutes = max(min_minutes, max_minutes)
+        min_interval = min_minutes * 60
+        max_interval = max_minutes * 60
         return min_interval, max_interval
 
     def _clamp_schedule_interval(
@@ -332,20 +340,37 @@ class SchedulerMixin:
         return None
 
     def _extract_explicit_delay_minutes(self, text: str) -> int | None:
-        if "半小时" in text or "半个小时" in text:
-            return 30
+        total_minutes = 0
+        has_match = False
 
-        minute_match = re.search(r"(\d{1,3})\s*(分钟|分|mins?|minutes?)\s*(后|later)?", text)
-        if minute_match:
-            value = int(minute_match.group(1))
-            if 1 <= value <= 1440:
-                return value
-
-        hour_match = re.search(r"(\d{1,2})\s*(个)?\s*(小时|钟头|hours?|hrs?|h)\s*(后|later)?", text)
+        half_hour_text = "半小时" in text or "半个小时" in text
+        hour_match = re.search(
+            r"(\d{1,2})\s*(个)?\s*(半)?\s*(小时|钟头|hours?|hrs?|h)",
+            text,
+        )
         if hour_match:
-            value = int(hour_match.group(1))
-            if 1 <= value <= 48:
-                return value * 60
+            hours = int(hour_match.group(1))
+            if 1 <= hours <= 48:
+                total_minutes += hours * 60
+                if hour_match.group(3):
+                    total_minutes += 30
+                has_match = True
+        elif half_hour_text:
+            total_minutes += 30
+            has_match = True
+
+        minute_match = re.search(
+            r"(\d{1,3})\s*(分钟|分|mins?|minutes?)",
+            text,
+        )
+        if minute_match:
+            minutes = int(minute_match.group(1))
+            if 0 <= minutes <= 1440:
+                total_minutes += minutes
+                has_match = True
+
+        if has_match and 1 <= total_minutes <= 2880:
+            return total_minutes
 
         return None
 

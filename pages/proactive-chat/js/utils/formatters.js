@@ -69,7 +69,7 @@ function getZonedDateParts(date, timeZone = 'Asia/Shanghai', options = {}) {
     }
 
     // IANA 模式交给 Intl 处理，可正确覆盖夏令时等复杂时区规则。
-    const formatter = new Intl.DateTimeFormat('zh-CN', {
+    const formatterOptions = {
         year: includeYear ? 'numeric' : undefined,
         month: '2-digit',
         day: '2-digit',
@@ -78,7 +78,16 @@ function getZonedDateParts(date, timeZone = 'Asia/Shanghai', options = {}) {
         second: includeSeconds ? '2-digit' : undefined,
         hour12: false,
         timeZone: tz.value,
-    });
+    };
+    let formatter;
+    try {
+        formatter = new Intl.DateTimeFormat('zh-CN', formatterOptions);
+    } catch (error) {
+        formatter = new Intl.DateTimeFormat('zh-CN', {
+            ...formatterOptions,
+            timeZone: 'Asia/Shanghai',
+        });
+    }
 
     const parts = formatter.formatToParts(parsed);
     const mapped = {};
@@ -203,4 +212,3 @@ window.formatFriendlyTime = formatFriendlyTime;
 window.formatDuration = formatDuration;
 window.resolveSourceModeLabel = resolveSourceModeLabel;
 window.formatUnansweredLabel = formatUnansweredLabel;
-

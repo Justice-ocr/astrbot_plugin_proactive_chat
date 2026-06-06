@@ -470,7 +470,7 @@ class LlmMixin:
             try:
                 message = message.to_dict()
             except Exception:
-                return ""
+                pass
 
         if isinstance(message, dict):
             content = message.get("content")
