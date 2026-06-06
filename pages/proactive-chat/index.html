@@ -21,6 +21,24 @@
         window.__PROACTIVE_AUTH_PENDING = true;
     </script>
 
+    <!-- AstrBot Pages 会为静态 href/src 追加 asset token；运行时 loader 会读取这些 URL。 -->
+    <link rel="preload" as="script" href="js/utils/auth.js" data-proactive-asset="js/utils/auth.js">
+    <link rel="preload" as="script" href="js/utils/http.js" data-proactive-asset="js/utils/http.js">
+    <link rel="preload" as="script" href="js/utils/formatters.js" data-proactive-asset="js/utils/formatters.js">
+    <link rel="preload" as="script" href="js/utils/markdown.js" data-proactive-asset="js/utils/markdown.js">
+    <link rel="preload" as="fetch" href="js/context/AppContext.jsx" data-proactive-asset="js/context/AppContext.jsx">
+    <link rel="preload" as="fetch" href="js/hooks/useApi.js" data-proactive-asset="js/hooks/useApi.js">
+    <link rel="preload" as="fetch" href="js/hooks/useWebSocket.js" data-proactive-asset="js/hooks/useWebSocket.js">
+    <link rel="preload" as="fetch" href="js/components/layout/Sidebar.jsx" data-proactive-asset="js/components/layout/Sidebar.jsx">
+    <link rel="preload" as="fetch" href="js/components/layout/Header.jsx" data-proactive-asset="js/components/layout/Header.jsx">
+    <link rel="preload" as="fetch" href="js/views/StatusView.jsx" data-proactive-asset="js/views/StatusView.jsx">
+    <link rel="preload" as="fetch" href="js/components/config/ConfigRenderer.jsx" data-proactive-asset="js/components/config/ConfigRenderer.jsx">
+    <link rel="preload" as="fetch" href="js/views/ConfigView.jsx" data-proactive-asset="js/views/ConfigView.jsx">
+    <link rel="preload" as="fetch" href="js/views/TasksView.jsx" data-proactive-asset="js/views/TasksView.jsx">
+    <link rel="preload" as="fetch" href="js/views/NotificationsView.jsx" data-proactive-asset="js/views/NotificationsView.jsx">
+    <link rel="preload" as="fetch" href="js/views/MarkdownDocsView.jsx" data-proactive-asset="js/views/MarkdownDocsView.jsx">
+    <link rel="preload" as="fetch" href="js/app.jsx" data-proactive-asset="js/app.jsx">
+
     <!-- 以 UMD 方式引入 React / Babel / MUI。
          根据用户时区/语言自动选择 CDN：国内走 npmmirror，国外走 unpkg。 -->
     <script>
@@ -65,6 +83,13 @@
             libsLoaded: 0,
             pendingScripts: [],
             scriptRunning: false,
+
+            resolveAsset: function(path) {
+                var selector = '[data-proactive-asset="' + path.replace(/"/g, '\\"') + '"]';
+                var node = document.querySelector(selector);
+                if (!node) return path;
+                return node.getAttribute('href') || node.getAttribute('src') || path;
+            },
 
             // 弹出全局 UI 错误信息并停止加载
             showError: function(msg) {
@@ -204,10 +229,12 @@
     <div id="root"></div>
 
     <!-- 工具脚本必须先于 JSX 模块加载，以便后者可直接使用 window 上的工具对象。 -->
-    <script src="js/utils/auth.js"></script>
-    <script src="js/utils/http.js"></script>
-    <script src="js/utils/formatters.js"></script>
-    <script src="js/utils/markdown.js"></script>
+    <script>
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/utils/auth.js"), false);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/utils/http.js"), false);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/utils/formatters.js"), false);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/utils/markdown.js"), false);
+    </script>
 
     <script>
         // 鉴权探测流程脚本，必须在 window.AuthUtil 声明后运行。
@@ -392,18 +419,20 @@
     </script>
 
     <!-- 以下 JSX 文件按“基础能力 -> 布局组件 -> 页面视图 -> 应用入口”的顺序加载。 -->
-    <script type="text/babel" src="js/context/AppContext.jsx"></script>
-    <script type="text/babel" src="js/hooks/useApi.js"></script>
-    <script type="text/babel" src="js/hooks/useWebSocket.js"></script>
-    <script type="text/babel" src="js/components/layout/Sidebar.jsx"></script>
-    <script type="text/babel" src="js/components/layout/Header.jsx"></script>
-    <script type="text/babel" src="js/views/StatusView.jsx"></script>
-    <script type="text/babel" src="js/components/config/ConfigRenderer.jsx"></script>
-    <script type="text/babel" src="js/views/ConfigView.jsx"></script>
-    <script type="text/babel" src="js/views/TasksView.jsx"></script>
-    <script type="text/babel" src="js/views/NotificationsView.jsx"></script>
-    <script type="text/babel" src="js/views/MarkdownDocsView.jsx"></script>
-    <script type="text/babel" src="js/app.jsx"></script>
+    <script>
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/context/AppContext.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/hooks/useApi.js"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/hooks/useWebSocket.js"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/components/layout/Sidebar.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/components/layout/Header.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/views/StatusView.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/components/config/ConfigRenderer.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/views/ConfigView.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/views/TasksView.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/views/NotificationsView.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/views/MarkdownDocsView.jsx"), true);
+        window.ProactiveLoader.queueScript(window.ProactiveLoader.resolveAsset("js/app.jsx"), true);
+    </script>
 </body>
 
 </html>
