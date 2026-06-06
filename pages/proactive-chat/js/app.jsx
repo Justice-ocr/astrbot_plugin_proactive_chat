@@ -346,7 +346,7 @@ function ThemedAppShell() {
 }
 
 function AuthWrapper() {
-    const isAuthReady = () => window.__PROACTIVE_PAGE_MODE || window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
+    const isAuthReady = () => window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
     // ready 初值根据启动页鉴权状态决定，避免无鉴权场景下多等一次事件。
     const [ready, setReady] = React.useState(isAuthReady);
 

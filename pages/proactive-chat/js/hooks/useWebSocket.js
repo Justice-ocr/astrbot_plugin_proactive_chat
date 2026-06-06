@@ -101,7 +101,7 @@ function ensureGlobalWs() {
 
 function useWebSocket(onData) {
     React.useEffect(() => {
-        if (window.AstrBotPluginPage) {
+        if (window.__PROACTIVE_PAGE_MODE || window.AstrBotPluginPage) {
             // AstrBot Pages 运行在主 WebUI 的 iframe 中，无法直连独立 WebUI 的 /ws。
             // 入口应用已有轮询兜底，因此 Page 模式下保持纯 HTTP bridge。
             return undefined;

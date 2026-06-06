@@ -11,13 +11,33 @@
     <link rel="stylesheet" href="./css/style.css">
     <script>
         window.__PROACTIVE_PAGE_MODE = true;
-        window.__PROACTIVE_AUTH_PENDING = false;
-        window.__PROACTIVE_AUTH_READY = true;
+        window.__PROACTIVE_AUTH_PENDING = true;
+        window.__PROACTIVE_AUTH_READY = false;
         window.__PROACTIVE_APP_MOUNTED = false;
         window.__PROACTIVE_REACT_RENDER_REQUESTED = false;
         window.__PROACTIVE_WEBUI_INITIALIZED = false;
         window.__PROACTIVE_BOOT_STAGE = "bootstrap";
+        window.__PROACTIVE_LAST_BOOT_ERROR = "";
+        window.__PROACTIVE_BOOT_ERRORS = [];
+        window.rememberProactiveBootError = function (msg) {
+            var message = String(msg || "");
+            if (!message) return;
+            window.__PROACTIVE_LAST_BOOT_ERROR = message;
+            window.__PROACTIVE_BOOT_ERRORS.push(message);
+            if (window.__PROACTIVE_BOOT_ERRORS.length > 8) {
+                window.__PROACTIVE_BOOT_ERRORS.shift();
+            }
+        };
+        window.escapeProactiveBootText = function (value) {
+            return String(value || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        };
         window.showProactiveBootError = function (msg) {
+            window.rememberProactiveBootError(msg);
             console.error("[ProactivePage] " + msg);
             var text = document.getElementById("boot-text");
             if (text) {
@@ -40,17 +60,23 @@
                 "MaterialUI=" + String(!!window.MaterialUI),
                 "Bridge=" + String(!!window.AstrBotPluginPage)
             ].join(" | ");
+            var recentError = window.__PROACTIVE_LAST_BOOT_ERROR
+                ? "lastError=" + window.__PROACTIVE_LAST_BOOT_ERROR
+                : "";
+            var rootText = root.innerText ? root.innerText.trim().slice(0, 240) : "";
 
             root.innerHTML = [
                 '<div class="boot-loader" id="proactive-root-fallback">',
                 '<div class="boot-loader__logo"><img src="./logo.png" alt="logo"></div>',
                 '<div class="boot-loader__title">主动消息管理端</div>',
                 '<div class="boot-loader__subtitle" style="color:#B3261E">',
-                String(msg || "页面渲染为空"),
+                window.escapeProactiveBootText(msg || "页面渲染为空"),
                 '</div>',
                 '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">',
-                details,
+                window.escapeProactiveBootText(details),
                 '</div>',
+                recentError ? '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">' + window.escapeProactiveBootText(recentError) + '</div>' : '',
+                rootText ? '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">rootText=' + window.escapeProactiveBootText(rootText) + '</div>' : '',
                 '</div>'
             ].join("");
         };
@@ -95,7 +121,13 @@
                     window.hideProactiveBootSkeleton();
                     return;
                 }
-                window.showProactiveBootError("React 挂载超时: " + (reason || "unknown"));
+                var root = document.getElementById("root");
+                var rootText = root && root.innerText ? root.innerText.trim().slice(0, 240) : "";
+                var lastError = window.__PROACTIVE_LAST_BOOT_ERROR;
+                var detail = "";
+                if (lastError) detail += " | " + lastError;
+                if (rootText) detail += " | root: " + rootText;
+                window.showProactiveBootError("React 挂载超时: " + (reason || "unknown") + detail);
             }, 6000);
 
             window.addEventListener("proactive-app-mounted", done);
@@ -110,6 +142,26 @@
         };
         window.proactiveScriptLoadError = function (stage) {
             window.showProactiveBootError("脚本加载失败: " + stage);
+        };
+        window.ensureProactiveBridgeSdk = function () {
+            if (window.AstrBotPluginPage) {
+                return Promise.resolve();
+            }
+
+            return new Promise(function (resolve, reject) {
+                window.setProactiveBootStage("bridge-sdk");
+                var script = document.createElement("script");
+                script.src = "/api/plugin/page/bridge-sdk.js";
+                script.onload = function () {
+                    resolve();
+                };
+                script.onerror = function () {
+                    var error = new Error("脚本加载失败: bridge-sdk");
+                    window.proactiveScriptLoadError("bridge-sdk");
+                    reject(error);
+                };
+                document.head.appendChild(script);
+            });
         };
         window.addEventListener("error", function (event) {
             var stage = window.__PROACTIVE_BOOT_STAGE || "unknown";
@@ -126,10 +178,6 @@
             window.showProactiveBootError("异步初始化失败: " + stage + " - " + message);
         });
     </script>
-    <script>
-        window.setProactiveBootStage("bridge-sdk");
-    </script>
-    <script src="/api/plugin/page/bridge-sdk.js" onerror="window.proactiveScriptLoadError('bridge-sdk')"></script>
     <script>
         window.setProactiveBootStage("vendor globals");
         (function () {
@@ -191,7 +239,7 @@
     <script>window.setProactiveBootStage("dompurify");</script>
     <script src="./vendor/purify.min.js" onerror="window.proactiveScriptLoadError('dompurify')"></script>
     <script>window.setProactiveBootStage("app");</script>
-    <script src="./app.bundle.js" onerror="window.proactiveScriptLoadError('app.bundle')"></script>
+    <script src="./app.js?v=20260606-pages-bridge" onerror="window.proactiveScriptLoadError('app')"></script>
     <script>
         if (typeof window.__PROACTIVE_RESTORE_AMD_DEFINE === "function") {
             window.__PROACTIVE_RESTORE_AMD_DEFINE();
@@ -207,14 +255,17 @@
                 window.waitForProactiveAppMounted("after bridge ready");
             }
 
-            var bridge = window.AstrBotPluginPage;
-            if (!bridge) {
-                window.showProactiveBootError("AstrBot 插件页面桥接未就绪");
-                return;
-            }
+            window.ensureProactiveBridgeSdk()
+                .then(function () {
+                    window.setProactiveBootStage("page bridge");
+                    var bridge = window.AstrBotPluginPage;
+                    if (!bridge) {
+                        window.showProactiveBootError("AstrBot 插件页面桥接未就绪");
+                        return Promise.reject(new Error("AstrBot 插件页面桥接未就绪"));
+                    }
 
-            var ready = typeof bridge.ready === "function" ? bridge.ready() : Promise.resolve();
-            ready
+                    return typeof bridge.ready === "function" ? bridge.ready() : Promise.resolve();
+                })
                 .then(function () {
                     if (window.AuthUtil) {
                         window.AuthUtil.setToken("page-bridge");
