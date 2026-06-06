@@ -235,10 +235,16 @@ class WebAdminServer:
         if quart_request is None:
             return {}
 
-        try:
-            payload = await quart_request.get_json(silent=True)
-        except Exception:
-            payload = None
+        payload = None
+        for kwargs in ({"silent": True}, {"force": True}, {}):
+            try:
+                payload = await quart_request.get_json(**kwargs)
+                if payload is not None:
+                    break
+            except TypeError:
+                continue
+            except Exception:
+                continue
         return self._unwrap_page_payload(payload)
 
     def _unwrap_page_payload(self, payload: Any) -> dict[str, Any]:

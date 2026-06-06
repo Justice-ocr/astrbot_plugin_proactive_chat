@@ -184,7 +184,7 @@
             throw new Error(payload.message || payload.msg || "请求失败 (" + payload.code + ")");
         }
         if ((payload.ok === true || payload.success === true || payload.code === 0) && Object.prototype.hasOwnProperty.call(payload, "data")) {
-            return payload.data || {};
+            return normalizePayload(payload.data || {});
         }
         return payload;
     }
