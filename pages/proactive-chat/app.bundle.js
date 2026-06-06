@@ -1334,12 +1334,13 @@ window.useWebSocket = useWebSocket;
     currentView,
     onChange
   }) {
+    var _state$status, _state$notificationsM, _state$notificationsM2;
     const {
       state
     } = useAppContext();
     // 版本号来自全局状态的 status 快照；未加载前先展示占位文本。
-    const version = state.status?.version || '...';
-    const unreadNotificationCount = Math.max(0, Number(state.notificationsMeta?.unread_count ?? 0));
+    const version = ((_state$status = state.status) === null || _state$status === void 0 ? void 0 : _state$status.version) || '...';
+    const unreadNotificationCount = Math.max(0, Number((_state$notificationsM = (_state$notificationsM2 = state.notificationsMeta) === null || _state$notificationsM2 === void 0 ? void 0 : _state$notificationsM2.unread_count) !== null && _state$notificationsM !== void 0 ? _state$notificationsM : 0));
     const [logoSrc, setLogoSrc] = React.useState('./logo.png');
     React.useEffect(() => {
       // 管理端可能被挂载在不同层级路径，依次尝试多个 logo 地址以提高兼容性。
@@ -1396,8 +1397,8 @@ window.useWebSocket = useWebSocket;
         });
         if (!response || response.ok === false) {
           // 读取后端可能传回来的错误描述与详细 message
-          const errorTitle = response?.error || '打开目录失败';
-          const errorMsg = response?.message ? `\n详情: ${response.message}` : '';
+          const errorTitle = (response === null || response === void 0 ? void 0 : response.error) || '打开目录失败';
+          const errorMsg = response !== null && response !== void 0 && response.message ? `\n详情: ${response.message}` : '';
           throw new Error(`${errorTitle}${errorMsg}`);
         }
 
@@ -1407,7 +1408,7 @@ window.useWebSocket = useWebSocket;
           console.log(response.message);
         }
       } catch (e) {
-        const message = e?.message || '打开目录失败';
+        const message = (e === null || e === void 0 ? void 0 : e.message) || '打开目录失败';
         window.alert(message);
       }
     };
@@ -1578,6 +1579,7 @@ window.useWebSocket = useWebSocket;
   function Header({
     currentView
   }) {
+    var _status$ws_connection;
     const {
       state,
       dispatch
@@ -1587,7 +1589,7 @@ window.useWebSocket = useWebSocket;
       status
     } = state;
     // 若配置中未单独指定展示时区，则默认按插件主要使用场景的东八区展示。
-    const displayTimezone = config?.displayTimezone || 'Asia/Shanghai';
+    const displayTimezone = (config === null || config === void 0 ? void 0 : config.displayTimezone) || 'Asia/Shanghai';
     const toggleTheme = () => {
       dispatch({
         type: 'TOGGLE_THEME'
@@ -1604,7 +1606,7 @@ window.useWebSocket = useWebSocket;
     };
 
     // Header 不直接感知底层 socket 实例，只消费后端状态中的连接计数结果。
-    const wsCount = Number(status?.ws_connections ?? 0);
+    const wsCount = Number((_status$ws_connection = status === null || status === void 0 ? void 0 : status.ws_connections) !== null && _status$ws_connection !== void 0 ? _status$ws_connection : 0);
     const wsConnected = wsCount > 0;
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "top-bar"
@@ -1675,6 +1677,7 @@ window.useWebSocket = useWebSocket;
     };
     const merged = new Map();
     cards.forEach(card => {
+      var _priorityMap$card$tim, _priorityMap$existing;
       const key = String(card.session_id || '');
       if (!key) return;
       const existing = merged.get(key);
@@ -1682,16 +1685,17 @@ window.useWebSocket = useWebSocket;
         merged.set(key, card);
         return;
       }
-      const currentPriority = priorityMap[card.timer_kind] ?? 0;
-      const existingPriority = priorityMap[existing.timer_kind] ?? 0;
+      const currentPriority = (_priorityMap$card$tim = priorityMap[card.timer_kind]) !== null && _priorityMap$card$tim !== void 0 ? _priorityMap$card$tim : 0;
+      const existingPriority = (_priorityMap$existing = priorityMap[existing.timer_kind]) !== null && _priorityMap$existing !== void 0 ? _priorityMap$existing : 0;
       if (currentPriority > existingPriority) {
         merged.set(key, card);
         return;
       }
       if (currentPriority === existingPriority) {
+        var _card$remaining_secon, _existing$remaining_s;
         // 若类型优先级相同，则保留“更快触发”的那张卡，突出最紧迫状态。
-        const currentRemaining = Number(card.remaining_seconds ?? Number.MAX_SAFE_INTEGER);
-        const existingRemaining = Number(existing.remaining_seconds ?? Number.MAX_SAFE_INTEGER);
+        const currentRemaining = Number((_card$remaining_secon = card.remaining_seconds) !== null && _card$remaining_secon !== void 0 ? _card$remaining_secon : Number.MAX_SAFE_INTEGER);
+        const existingRemaining = Number((_existing$remaining_s = existing.remaining_seconds) !== null && _existing$remaining_s !== void 0 ? _existing$remaining_s : Number.MAX_SAFE_INTEGER);
         if (currentRemaining < existingRemaining) {
           merged.set(key, card);
         }
@@ -1716,14 +1720,15 @@ window.useWebSocket = useWebSocket;
     }, value));
   }
   function resolveStatusTimerCard(timer, nowMs, displayTimezone) {
+    var _timer$window_seconds, _timer$progress_perce;
     // 后端 target_time / started_at 以秒级时间戳返回，这里统一转为 Date 便于格式化和比较。
     const targetTime = parseDateish(timer.target_time ? Number(timer.target_time) * 1000 : null);
     const startedAt = parseDateish(timer.started_at ? Number(timer.started_at) * 1000 : null);
     const remainingSeconds = Number.isFinite(Number(timer.remaining_seconds)) ? Math.max(0, Number(timer.remaining_seconds)) : targetTime ? Math.max(0, Math.ceil((targetTime.getTime() - nowMs) / 1000)) : 0;
-    const windowSeconds = Math.max(0, Number(timer.window_seconds ?? 0));
+    const windowSeconds = Math.max(0, Number((_timer$window_seconds = timer.window_seconds) !== null && _timer$window_seconds !== void 0 ? _timer$window_seconds : 0));
     // 若后端未给出 progress_percent，则前端基于总窗口时长与剩余秒数推导一个近似值。
     const fallbackProgress = windowSeconds > 0 ? Math.max(0, Math.min(100, Math.round((windowSeconds - remainingSeconds) / windowSeconds * 100))) : 0;
-    const progressPercent = Math.max(0, Math.min(100, Math.round(Number(timer.progress_percent ?? fallbackProgress) || 0)));
+    const progressPercent = Math.max(0, Math.min(100, Math.round(Number((_timer$progress_perce = timer.progress_percent) !== null && _timer$progress_perce !== void 0 ? _timer$progress_perce : fallbackProgress) || 0)));
 
     // 根据剩余时间给卡片打上状态标签，供颜色、文案和动画统一使用。
     let status = 'future';
@@ -1789,9 +1794,10 @@ window.useWebSocket = useWebSocket;
     nowMs,
     resetHint
   }) {
+    var _meta$unanswered_coun, _meta$unanswered_coun2;
     const meta = resolveStatusTimerCard(timer, nowMs, displayTimezone);
     // 未回复次数大于 0 时用 warning 色，帮助管理员快速定位“机器人已被晾着”的会话。
-    const chipColor = Number(meta.unanswered_count ?? 0) > 0 ? 'warning' : 'default';
+    const chipColor = Number((_meta$unanswered_coun = meta.unanswered_count) !== null && _meta$unanswered_coun !== void 0 ? _meta$unanswered_coun : 0) > 0 ? 'warning' : 'default';
     return /*#__PURE__*/React.createElement("div", {
       className: `card status-timer-card ${meta.accentClass} ${meta.status === 'urgent' ? 'is-urgent' : ''} ${meta.status === 'expired' ? 'is-expired' : ''} ${resetHint ? 'is-resetting' : ''}`
     }, /*#__PURE__*/React.createElement("div", {
@@ -1817,7 +1823,7 @@ window.useWebSocket = useWebSocket;
       label: meta.unansweredLabel,
       size: "small",
       color: chipColor,
-      variant: Number(meta.unanswered_count ?? 0) > 0 ? 'filled' : 'outlined'
+      variant: Number((_meta$unanswered_coun2 = meta.unanswered_count) !== null && _meta$unanswered_coun2 !== void 0 ? _meta$unanswered_coun2 : 0) > 0 ? 'filled' : 'outlined'
     }))), /*#__PURE__*/React.createElement("div", {
       className: "status-timer-meta-row"
     }, /*#__PURE__*/React.createElement("div", {
@@ -1876,6 +1882,7 @@ window.useWebSocket = useWebSocket;
   function StatusView({
     onRefresh
   }) {
+    var _state$config, _status$uptime_second, _status$jobs_count, _status$sessions_coun, _status$auto_trigger_, _status$group_timers, _status$ws_connection;
     const {
       state
     } = useAppContext();
@@ -1891,7 +1898,7 @@ window.useWebSocket = useWebSocket;
     });
     const previousTimerSnapshotRef = React.useRef({});
     const resetHintTimersRef = React.useRef({});
-    const displayTimezone = state.config?.displayTimezone || 'Asia/Shanghai';
+    const displayTimezone = ((_state$config = state.config) === null || _state$config === void 0 ? void 0 : _state$config.displayTimezone) || 'Asia/Shanghai';
     React.useEffect(() => {
       const timer = setInterval(() => {
         setNowMs(Date.now());
@@ -1908,11 +1915,11 @@ window.useWebSocket = useWebSocket;
     }, []);
 
     // 统一把后端状态字段规整为前端友好的基础数字类型。
-    const uptimeSeconds = Number(status.uptime_seconds ?? 0);
-    const jobsCount = Number(status.jobs_count ?? 0);
-    const sessionsCount = Number(status.sessions_count ?? 0);
-    const autoTriggerTimers = Number(status.auto_trigger_timers ?? 0);
-    const groupTimers = Number(status.group_timers ?? 0);
+    const uptimeSeconds = Number((_status$uptime_second = status.uptime_seconds) !== null && _status$uptime_second !== void 0 ? _status$uptime_second : 0);
+    const jobsCount = Number((_status$jobs_count = status.jobs_count) !== null && _status$jobs_count !== void 0 ? _status$jobs_count : 0);
+    const sessionsCount = Number((_status$sessions_coun = status.sessions_count) !== null && _status$sessions_coun !== void 0 ? _status$sessions_coun : 0);
+    const autoTriggerTimers = Number((_status$auto_trigger_ = status.auto_trigger_timers) !== null && _status$auto_trigger_ !== void 0 ? _status$auto_trigger_ : 0);
+    const groupTimers = Number((_status$group_timers = status.group_timers) !== null && _status$group_timers !== void 0 ? _status$group_timers : 0);
     const schedulerRunning = Boolean(status.scheduler_running);
     const pluginRunning = Boolean(status.running);
     const autoTriggerCards = Array.isArray(status.auto_trigger_cards) ? status.auto_trigger_cards : [];
@@ -1937,9 +1944,10 @@ window.useWebSocket = useWebSocket;
       const nextHints = {};
       const activeKeys = new Set();
       timerCards.forEach(timer => {
+        var _timer$remaining_seco, _timer$target_time, _previous$remainingSe;
         const key = `${timer.timer_kind}-${timer.session_id}`;
-        const currentRemaining = Math.max(0, Number(timer.remaining_seconds ?? 0));
-        const currentTarget = Number(timer.target_time ?? 0);
+        const currentRemaining = Math.max(0, Number((_timer$remaining_seco = timer.remaining_seconds) !== null && _timer$remaining_seco !== void 0 ? _timer$remaining_seco : 0));
+        const currentTarget = Number((_timer$target_time = timer.target_time) !== null && _timer$target_time !== void 0 ? _timer$target_time : 0);
         const currentStatus = String(timer.status || '');
         const previous = previousTimerSnapshotRef.current[key] || null;
         activeKeys.add(key);
@@ -1950,7 +1958,7 @@ window.useWebSocket = useWebSocket;
         };
 
         // 真正的“被重置”应表现为：同一张群沉默卡片的剩余时间突然回升，且当前仍处于有效运行态。
-        const isGroupReset = timer.timer_kind === 'group_silence' && previous && currentStatus !== 'expired' && currentStatus !== 'unknown' && currentRemaining - Number(previous.remainingSeconds ?? 0) > 3;
+        const isGroupReset = timer.timer_kind === 'group_silence' && previous && currentStatus !== 'expired' && currentStatus !== 'unknown' && currentRemaining - Number((_previous$remainingSe = previous.remainingSeconds) !== null && _previous$remainingSe !== void 0 ? _previous$remainingSe : 0) > 3;
         if (isGroupReset) {
           nextHints[key] = true;
           if (resetHintTimersRef.current[key]) {
@@ -2043,7 +2051,7 @@ window.useWebSocket = useWebSocket;
       emphasize: true
     }), /*#__PURE__*/React.createElement(StatusMetricRow, {
       label: "\u5DF2\u8FDE\u63A5 WebSocket",
-      value: `${Number(status.ws_connections ?? 0)} 个`
+      value: `${Number((_status$ws_connection = status.ws_connections) !== null && _status$ws_connection !== void 0 ? _status$ws_connection : 0)} 个`
     })))), /*#__PURE__*/React.createElement("div", {
       className: "span-4"
     }, /*#__PURE__*/React.createElement("div", {
@@ -2421,7 +2429,7 @@ window.useWebSocket = useWebSocket;
         key: key,
         fieldKey: key,
         schema: subSchema,
-        value: localValue?.[key],
+        value: localValue === null || localValue === void 0 ? void 0 : localValue[key],
         onChange: newValue => handleChange({
           ...localValue,
           [key]: newValue
@@ -2524,17 +2532,18 @@ window.useWebSocket = useWebSocket;
 
     // 数值字段支持“滑杆 + 数字输入框”的双通道编辑，兼顾直观性与精确输入。
     if (['integer', 'int', 'number', 'float', 'double'].includes(schema.type)) {
+      var _sliderConfig$min, _sliderConfig$max, _sliderConfig$step, _ref, _schema$default;
       const sliderConfig = schema.slider;
       const hasRange = sliderConfig !== undefined;
       // 如果有范围，展示 Slider，布局 5:3:2；否则回退到 8:2
       const descFlex = hasRange ? 5 : 8;
-      const min = sliderConfig?.min ?? schema.minimum;
-      const max = sliderConfig?.max ?? schema.maximum;
-      const step = sliderConfig?.step ?? (schema.type === 'integer' || schema.type === 'int' ? 1 : 0.1);
-      const fallbackNumber = schema.default ?? min ?? 0;
+      const min = (_sliderConfig$min = sliderConfig === null || sliderConfig === void 0 ? void 0 : sliderConfig.min) !== null && _sliderConfig$min !== void 0 ? _sliderConfig$min : schema.minimum;
+      const max = (_sliderConfig$max = sliderConfig === null || sliderConfig === void 0 ? void 0 : sliderConfig.max) !== null && _sliderConfig$max !== void 0 ? _sliderConfig$max : schema.maximum;
+      const step = (_sliderConfig$step = sliderConfig === null || sliderConfig === void 0 ? void 0 : sliderConfig.step) !== null && _sliderConfig$step !== void 0 ? _sliderConfig$step : schema.type === 'integer' || schema.type === 'int' ? 1 : 0.1;
+      const fallbackNumber = (_ref = (_schema$default = schema.default) !== null && _schema$default !== void 0 ? _schema$default : min) !== null && _ref !== void 0 ? _ref : 0;
       const parsedLocalNumber = Number(localValue);
       const sliderValueRaw = Number.isFinite(parsedLocalNumber) ? parsedLocalNumber : Number(fallbackNumber);
-      const sliderValue = Math.min(max ?? sliderValueRaw, Math.max(min ?? sliderValueRaw, sliderValueRaw));
+      const sliderValue = Math.min(max !== null && max !== void 0 ? max : sliderValueRaw, Math.max(min !== null && min !== void 0 ? min : sliderValueRaw, sliderValueRaw));
       return /*#__PURE__*/React.createElement(Box, {
         sx: {
           display: 'flex',
@@ -2835,8 +2844,9 @@ window.useWebSocket = useWebSocket;
   // 会话差异配置页并不暴露完整全局 Schema，而是按会话类型抽取可编辑字段子集。
   // 因此像 web_admin、notification_settings 这类纯全局配置块不会出现在会话差异编辑视图中。
   function getSessionSchemaEntries(schema, sessionType) {
+    var _schema$rootKey;
     const rootKey = sessionType === 'group' ? 'group_settings' : 'friend_settings';
-    const rootItems = schema?.[rootKey]?.items || {};
+    const rootItems = (schema === null || schema === void 0 || (_schema$rootKey = schema[rootKey]) === null || _schema$rootKey === void 0 ? void 0 : _schema$rootKey.items) || {};
     const orderedKeys = ['auto_trigger_settings', 'group_idle_trigger_minutes', 'proactive_prompt', 'context_settings', 'schedule_settings', 'tts_settings', 'segmented_reply_settings'];
     const hiddenKeys = new Set(['enable', 'session_list']);
     const entries = [];
@@ -2859,6 +2869,7 @@ window.useWebSocket = useWebSocket;
    * 包含了配置的获取、状态管理和保存逻辑
    */
   function ConfigRenderer() {
+    var _selectedSessionMeta$;
     const {
       state
     } = useAppContext(); // 获取全局状态
@@ -2991,7 +3002,7 @@ window.useWebSocket = useWebSocket;
       try {
         // 会话列表用于会话差异配置模式下的下拉框、状态提示与覆写标记展示。
         const result = await api.listSessions();
-        const sessionList = result?.sessions || [];
+        const sessionList = (result === null || result === void 0 ? void 0 : result.sessions) || [];
 
         // 确保 sessionList 中的每一项都是包含 session, has_override 的对象形式
         const normalizedSessions = sessionList.map(item => typeof item === 'string' ? {
@@ -3031,7 +3042,7 @@ window.useWebSocket = useWebSocket;
           }
           setSessionLoading(true);
           const sessionData = await api.getSessionConfig(currentSession);
-          const hasBaseConfig = Boolean(sessionData?.base);
+          const hasBaseConfig = Boolean(sessionData === null || sessionData === void 0 ? void 0 : sessionData.base);
           setSessionConfigState(hasBaseConfig ? {
             baseAvailable: true,
             message: ''
@@ -3039,7 +3050,7 @@ window.useWebSocket = useWebSocket;
             baseAvailable: false,
             message: '该会话尚未命中对应类型的全局 session_list，因此暂时无法保存会话差异配置。请先在对应的全局配置中加入该会话。'
           });
-          configData = sessionData?.effective || sessionData?.override || {};
+          configData = (sessionData === null || sessionData === void 0 ? void 0 : sessionData.effective) || (sessionData === null || sessionData === void 0 ? void 0 : sessionData.override) || {};
         } else {
           setSessionConfigState({
             baseAvailable: true,
@@ -3138,7 +3149,7 @@ window.useWebSocket = useWebSocket;
           });
           isDirtyRef.current = false;
           localStorage.removeItem(getDraftKey(currentMode, currentSession));
-          setConfig(response?.effective || cleanedConfig);
+          setConfig((response === null || response === void 0 ? void 0 : response.effective) || cleanedConfig);
           setSaveFeedback({
             type: 'success',
             text: '会话差异配置已保存'
@@ -3165,9 +3176,9 @@ window.useWebSocket = useWebSocket;
         console.error('保存配置失败', e);
         setSaveFeedback({
           type: 'error',
-          text: e?.message || '保存配置失败，请检查后端返回信息'
+          text: (e === null || e === void 0 ? void 0 : e.message) || '保存配置失败，请检查后端返回信息'
         });
-        window.alert(e?.message || '保存配置失败，请检查后端返回信息');
+        window.alert((e === null || e === void 0 ? void 0 : e.message) || '保存配置失败，请检查后端返回信息');
       } finally {
         setSaving(false);
       }
@@ -3194,9 +3205,9 @@ window.useWebSocket = useWebSocket;
         console.error('清空会话差异配置失败', e);
         setSaveFeedback({
           type: 'error',
-          text: e?.message || '清空会话差异配置失败'
+          text: (e === null || e === void 0 ? void 0 : e.message) || '清空会话差异配置失败'
         });
-        window.alert(e?.message || '清空会话差异配置失败');
+        window.alert((e === null || e === void 0 ? void 0 : e.message) || '清空会话差异配置失败');
       } finally {
         setSaving(false);
       }
@@ -3236,11 +3247,11 @@ window.useWebSocket = useWebSocket;
 
     // 以下派生变量统一在渲染前计算，避免 JSX 中出现过多内联判断，降低维护复杂度。
     const selectedSessionMeta = sessions.find(s => (s.session || s) === selectedSession);
-    const hasOverride = selectedSessionMeta?.has_override;
+    const hasOverride = selectedSessionMeta === null || selectedSessionMeta === void 0 ? void 0 : selectedSessionMeta.has_override;
     const currentSessionType = detectSessionType(selectedSession);
     const sessionSchemaEntries = mode === 'session' ? getSessionSchemaEntries(schema, currentSessionType) : [];
     const schemaEntries = mode === 'session' ? sessionSchemaEntries : Object.entries(schema);
-    const sessionEnabled = mode === 'session' ? Boolean(config?.enable) : false;
+    const sessionEnabled = mode === 'session' ? Boolean(config === null || config === void 0 ? void 0 : config.enable) : false;
     const sessionTypeLabel = currentSessionType === 'group' ? '群聊' : '私聊';
     const canSaveSessionConfig = mode !== 'session' || sessionConfigState.baseAvailable;
     return /*#__PURE__*/React.createElement(Box, {
@@ -3306,7 +3317,7 @@ window.useWebSocket = useWebSocket;
     }, "\u4F1A\u8BDD\u914D\u7F6E\u52A0\u8F7D\u4E2D..."))), mode === 'session' && selectedSessionMeta && /*#__PURE__*/React.createElement(Typography, {
       variant: "caption",
       color: "text.secondary"
-    }, "\u5F53\u524D\u4F1A\u8BDD\uFF1A", selectedSessionMeta.session_display_name || selectedSessionMeta.session_name || selectedSessionMeta.session || selectedSessionMeta, selectedSessionMeta.session_name ? ` ｜ UMO：${selectedSessionMeta.session}` : '', ' ｜ ', "\u672A\u56DE\u590D\u6B21\u6570\uFF1A", selectedSessionMeta.unanswered_count ?? 0), mode === 'session' && !sessionConfigState.baseAvailable && sessionConfigState.message && /*#__PURE__*/React.createElement(Box, {
+    }, "\u5F53\u524D\u4F1A\u8BDD\uFF1A", selectedSessionMeta.session_display_name || selectedSessionMeta.session_name || selectedSessionMeta.session || selectedSessionMeta, selectedSessionMeta.session_name ? ` ｜ UMO：${selectedSessionMeta.session}` : '', ' ｜ ', "\u672A\u56DE\u590D\u6B21\u6570\uFF1A", (_selectedSessionMeta$ = selectedSessionMeta.unanswered_count) !== null && _selectedSessionMeta$ !== void 0 ? _selectedSessionMeta$ : 0), mode === 'session' && !sessionConfigState.baseAvailable && sessionConfigState.message && /*#__PURE__*/React.createElement(Box, {
       sx: {
         px: 1.5,
         py: 1,
@@ -3757,6 +3768,7 @@ window.useWebSocket = useWebSocket;
   function TasksView({
     onRefresh
   }) {
+    var _state$config;
     const {
       state,
       dispatch
@@ -3766,7 +3778,7 @@ window.useWebSocket = useWebSocket;
     const [nowMs, setNowMs] = React.useState(Date.now());
     const [triggerFeedbackMap, setTriggerFeedbackMap] = React.useState({});
     const [rescheduleFeedbackMap, setRescheduleFeedbackMap] = React.useState({});
-    const displayTimezone = state.config?.displayTimezone || 'Asia/Shanghai';
+    const displayTimezone = ((_state$config = state.config) === null || _state$config === void 0 ? void 0 : _state$config.displayTimezone) || 'Asia/Shanghai';
     React.useEffect(() => {
       const timer = setInterval(() => {
         setNowMs(Date.now());
@@ -3788,7 +3800,7 @@ window.useWebSocket = useWebSocket;
           ...prev,
           [session]: {
             status: 'pending',
-            text: result?.message || '已开始立即触发，正在等待 LLM 回复完成…'
+            text: (result === null || result === void 0 ? void 0 : result.message) || '已开始立即触发，正在等待 LLM 回复完成…'
           }
         }));
         await onRefresh();
@@ -3831,7 +3843,7 @@ window.useWebSocket = useWebSocket;
           ...prev,
           [session]: {
             status: 'success',
-            text: result?.message || '已重新调度下一次主动消息时间'
+            text: (result === null || result === void 0 ? void 0 : result.message) || '已重新调度下一次主动消息时间'
           }
         }));
         await onRefresh();
@@ -3857,6 +3869,7 @@ window.useWebSocket = useWebSocket;
           ...prev
         };
         jobs.forEach(job => {
+          var _next$job$id;
           if (job.manual_trigger_in_progress) {
             const current = next[job.id];
             const expectedText = '正在触发，等待 LLM 回复完成…';
@@ -3869,7 +3882,7 @@ window.useWebSocket = useWebSocket;
             }
             return;
           }
-          if (next[job.id]?.status === 'pending') {
+          if (((_next$job$id = next[job.id]) === null || _next$job$id === void 0 ? void 0 : _next$job$id.status) === 'pending') {
             next[job.id] = {
               status: 'success',
               text: '本次立即触发已完成，按钮已恢复可用'
@@ -3881,7 +3894,7 @@ window.useWebSocket = useWebSocket;
       });
     }, [jobs]);
     React.useEffect(() => {
-      const successEntries = Object.entries(triggerFeedbackMap).filter(([, value]) => value?.status === 'success');
+      const successEntries = Object.entries(triggerFeedbackMap).filter(([, value]) => (value === null || value === void 0 ? void 0 : value.status) === 'success');
       if (successEntries.length === 0) {
         return undefined;
       }
@@ -3903,7 +3916,7 @@ window.useWebSocket = useWebSocket;
       };
     }, [triggerFeedbackMap]);
     React.useEffect(() => {
-      const successEntries = Object.entries(rescheduleFeedbackMap).filter(([, value]) => value?.status === 'success');
+      const successEntries = Object.entries(rescheduleFeedbackMap).filter(([, value]) => (value === null || value === void 0 ? void 0 : value.status) === 'success');
       if (successEntries.length === 0) {
         return undefined;
       }
@@ -3969,10 +3982,10 @@ window.useWebSocket = useWebSocket;
       const isTriggerRunning = Boolean(job.manual_trigger_in_progress);
       const triggerFeedback = triggerFeedbackMap[job.id];
       const rescheduleFeedback = rescheduleFeedbackMap[job.id];
-      const isRescheduling = rescheduleFeedback?.status === 'pending';
+      const isRescheduling = (rescheduleFeedback === null || rescheduleFeedback === void 0 ? void 0 : rescheduleFeedback.status) === 'pending';
       const triggerButtonLabel = isTriggerRunning ? '触发中…' : '立即触发';
-      const triggerHelperText = isTriggerRunning ? triggerFeedback?.text || '正在触发，等待 LLM 回复完成…' : triggerFeedback?.text;
-      const rescheduleHelperText = rescheduleFeedback?.text;
+      const triggerHelperText = isTriggerRunning ? (triggerFeedback === null || triggerFeedback === void 0 ? void 0 : triggerFeedback.text) || '正在触发，等待 LLM 回复完成…' : triggerFeedback === null || triggerFeedback === void 0 ? void 0 : triggerFeedback.text;
+      const rescheduleHelperText = rescheduleFeedback === null || rescheduleFeedback === void 0 ? void 0 : rescheduleFeedback.text;
       const scheduleIntervalText = formatScheduleIntervalText(job.schedule_min_interval_minutes, job.schedule_max_interval_minutes);
       const quietHoursText = formatQuietHoursText(job.quiet_hours);
       return /*#__PURE__*/React.createElement("div", {
@@ -4122,13 +4135,13 @@ window.useWebSocket = useWebSocket;
         variant: "caption",
         sx: {
           minHeight: 20,
-          color: triggerFeedback?.status === 'error' ? 'error.main' : triggerFeedback?.status === 'success' ? 'success.main' : 'text.secondary'
+          color: (triggerFeedback === null || triggerFeedback === void 0 ? void 0 : triggerFeedback.status) === 'error' ? 'error.main' : (triggerFeedback === null || triggerFeedback === void 0 ? void 0 : triggerFeedback.status) === 'success' ? 'success.main' : 'text.secondary'
         }
       }, triggerHelperText) : null, rescheduleHelperText ? /*#__PURE__*/React.createElement(Typography, {
         variant: "caption",
         sx: {
           minHeight: 20,
-          color: rescheduleFeedback?.status === 'error' ? 'error.main' : rescheduleFeedback?.status === 'success' ? 'success.main' : 'text.secondary'
+          color: (rescheduleFeedback === null || rescheduleFeedback === void 0 ? void 0 : rescheduleFeedback.status) === 'error' ? 'error.main' : (rescheduleFeedback === null || rescheduleFeedback === void 0 ? void 0 : rescheduleFeedback.status) === 'success' ? 'success.main' : 'text.secondary'
         }
       }, rescheduleHelperText) : null, /*#__PURE__*/React.createElement(Box, {
         sx: {
@@ -4222,8 +4235,8 @@ window.useWebSocket = useWebSocket;
   }
   function renderNotificationContent(item) {
     // 通知正文无论来自纯文本还是 Markdown，都先走统一内容规范化，避免换行格式不一致。
-    const content = window.MarkdownRenderUtil.normalizeMarkdownContent(item?.content || '--');
-    const format = String(item?.content_format || 'text').trim().toLowerCase();
+    const content = window.MarkdownRenderUtil.normalizeMarkdownContent((item === null || item === void 0 ? void 0 : item.content) || '--');
+    const format = String((item === null || item === void 0 ? void 0 : item.content_format) || 'text').trim().toLowerCase();
     const shouldRenderMarkdown = format === 'markdown' || window.MarkdownRenderUtil.isProbablyMarkdown(content);
     if (!shouldRenderMarkdown) {
       return /*#__PURE__*/React.createElement(Typography, {
@@ -4247,6 +4260,7 @@ window.useWebSocket = useWebSocket;
   function NotificationsView({
     onRefresh
   }) {
+    var _state$config, _notificationsMeta$un, _notificationsMeta$un2, _notificationsMeta$un3, _notificationsMeta$un4, _notificationsMeta$un5, _notificationsMeta$un6;
     const {
       state,
       dispatch
@@ -4259,7 +4273,7 @@ window.useWebSocket = useWebSocket;
       last_sync_at: '',
       total_count: 0
     };
-    const displayTimezone = state.config?.displayTimezone || 'Asia/Shanghai';
+    const displayTimezone = ((_state$config = state.config) === null || _state$config === void 0 ? void 0 : _state$config.displayTimezone) || 'Asia/Shanghai';
     // busyAction 用单字符串标记当前进行中的动作，便于按钮粒度控制禁用状态。
     const [busyAction, setBusyAction] = React.useState('');
     const refreshFromServer = async () => {
@@ -4370,17 +4384,17 @@ window.useWebSocket = useWebSocket;
         lineHeight: 1,
         border: '1px solid',
         // 未读状态通过暖色强调，全部已读则回落到绿色提示“状态良好”。
-        borderColor: Number(notificationsMeta.unread_count ?? 0) > 0 ? 'rgba(245, 158, 11, 0.28)' : 'rgba(46, 125, 50, 0.18)',
-        background: Number(notificationsMeta.unread_count ?? 0) > 0 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(46, 125, 50, 0.08)',
-        color: Number(notificationsMeta.unread_count ?? 0) > 0 ? '#B45309' : '#2E7D32'
+        borderColor: Number((_notificationsMeta$un = notificationsMeta.unread_count) !== null && _notificationsMeta$un !== void 0 ? _notificationsMeta$un : 0) > 0 ? 'rgba(245, 158, 11, 0.28)' : 'rgba(46, 125, 50, 0.18)',
+        background: Number((_notificationsMeta$un2 = notificationsMeta.unread_count) !== null && _notificationsMeta$un2 !== void 0 ? _notificationsMeta$un2 : 0) > 0 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(46, 125, 50, 0.08)',
+        color: Number((_notificationsMeta$un3 = notificationsMeta.unread_count) !== null && _notificationsMeta$un3 !== void 0 ? _notificationsMeta$un3 : 0) > 0 ? '#B45309' : '#2E7D32'
       }
-    }, Number(notificationsMeta.unread_count ?? 0) > 0 ? `未读 ${Number(notificationsMeta.unread_count ?? 0)} 条` : '全部已读')), /*#__PURE__*/React.createElement("div", {
+    }, Number((_notificationsMeta$un4 = notificationsMeta.unread_count) !== null && _notificationsMeta$un4 !== void 0 ? _notificationsMeta$un4 : 0) > 0 ? `未读 ${Number((_notificationsMeta$un5 = notificationsMeta.unread_count) !== null && _notificationsMeta$un5 !== void 0 ? _notificationsMeta$un5 : 0)} 条` : '全部已读')), /*#__PURE__*/React.createElement("div", {
       className: "notifications-inline-meta"
     }, /*#__PURE__*/React.createElement("div", {
       className: "notifications-inline-meta-item is-pill"
     }, /*#__PURE__*/React.createElement("span", {
       className: "notifications-inline-meta-label"
-    }, "\u672A\u8BFB\u901A\u77E5"), /*#__PURE__*/React.createElement("strong", null, Number(notificationsMeta.unread_count ?? 0))), /*#__PURE__*/React.createElement("div", {
+    }, "\u672A\u8BFB\u901A\u77E5"), /*#__PURE__*/React.createElement("strong", null, Number((_notificationsMeta$un6 = notificationsMeta.unread_count) !== null && _notificationsMeta$un6 !== void 0 ? _notificationsMeta$un6 : 0))), /*#__PURE__*/React.createElement("div", {
       className: "notifications-inline-meta-item is-pill"
     }, /*#__PURE__*/React.createElement("span", {
       className: "notifications-inline-meta-label"
@@ -4487,6 +4501,7 @@ window.useWebSocket = useWebSocket;
     Chip
   } = MaterialUI;
   function MarkdownDocsView() {
+    var _markdownFiles$find;
     const {
       state,
       dispatch
@@ -4504,7 +4519,7 @@ window.useWebSocket = useWebSocket;
       setLoadingList(true);
       try {
         const payload = await api.listMarkdownFiles();
-        const items = Array.isArray(payload?.items) ? payload.items : [];
+        const items = Array.isArray(payload === null || payload === void 0 ? void 0 : payload.items) ? payload.items : [];
         dispatch({
           type: 'SET_MARKDOWN_FILES',
           payload: items
@@ -4579,10 +4594,9 @@ window.useWebSocket = useWebSocket;
         await loadMarkdownDocument(selectedMarkdownPath);
       }
     };
-    const currentDocumentTitle = markdownDocument?.title || markdownFiles.find(item => item.path === selectedMarkdownPath)?.title || 'Markdown 文档';
-    const currentDocumentPath = markdownDocument?.path || selectedMarkdownPath;
-    const renderedHtml = markdownDocument?.content
-    // 文档正文和通知正文共用同一套 MarkdownRenderUtil，确保渲染风格一致。
+    const currentDocumentTitle = (markdownDocument === null || markdownDocument === void 0 ? void 0 : markdownDocument.title) || ((_markdownFiles$find = markdownFiles.find(item => item.path === selectedMarkdownPath)) === null || _markdownFiles$find === void 0 ? void 0 : _markdownFiles$find.title) || 'Markdown 文档';
+    const currentDocumentPath = (markdownDocument === null || markdownDocument === void 0 ? void 0 : markdownDocument.path) || selectedMarkdownPath;
+    const renderedHtml = markdownDocument !== null && markdownDocument !== void 0 && markdownDocument.content // 文档正文和通知正文共用同一套 MarkdownRenderUtil，确保渲染风格一致。
     ? window.MarkdownRenderUtil.renderMarkdownToHtml(markdownDocument.content) : '';
     React.useEffect(() => {
       const articleEl = articleRef.current;
@@ -4607,10 +4621,11 @@ window.useWebSocket = useWebSocket;
       let disposed = false;
       const cleanupFns = [];
       const attachMermaidViewportControls = block => {
+        var _currentSvg$viewBox, _block$parentElement;
         const svg = block.querySelector('svg');
         if (!svg) return;
         const currentSvg = svg;
-        const svgViewBox = currentSvg.viewBox?.baseVal;
+        const svgViewBox = (_currentSvg$viewBox = currentSvg.viewBox) === null || _currentSvg$viewBox === void 0 ? void 0 : _currentSvg$viewBox.baseVal;
         const fallbackWidth = Number(currentSvg.getAttribute('width')) || currentSvg.clientWidth || 1200;
         const fallbackHeight = Number(currentSvg.getAttribute('height')) || currentSvg.clientHeight || 800;
         const intrinsicWidth = svgViewBox && svgViewBox.width ? svgViewBox.width : fallbackWidth;
@@ -4625,7 +4640,7 @@ window.useWebSocket = useWebSocket;
         if (existingViewport) {
           existingViewport.remove();
         }
-        const existingToolbar = block.parentElement?.querySelector('.notification-md-mermaid-toolbar');
+        const existingToolbar = (_block$parentElement = block.parentElement) === null || _block$parentElement === void 0 ? void 0 : _block$parentElement.querySelector('.notification-md-mermaid-toolbar');
         if (existingToolbar) {
           existingToolbar.remove();
         }
@@ -4707,7 +4722,8 @@ window.useWebSocket = useWebSocket;
           }
         };
         const onToolbarClick = event => {
-          const action = event.target?.getAttribute('data-action');
+          var _event$target;
+          const action = (_event$target = event.target) === null || _event$target === void 0 ? void 0 : _event$target.getAttribute('data-action');
           if (!action) return;
           if (action === 'zoom-in') zoomBy(0.35);
           if (action === 'zoom-out') zoomBy(-0.35);
@@ -4789,7 +4805,7 @@ window.useWebSocket = useWebSocket;
             }
             const renderResult = await mermaid.render(renderId, source);
             if (disposed) return;
-            block.innerHTML = renderResult?.svg || '';
+            block.innerHTML = (renderResult === null || renderResult === void 0 ? void 0 : renderResult.svg) || '';
             attachMermaidViewportControls(block);
           } catch (error) {
             if (disposed) return;
@@ -5385,7 +5401,8 @@ class RuntimeErrorBoundary extends React.Component {
   }
   render() {
     if (this.state.error) {
-      const message = this.state.error?.message || '页面渲染失败';
+      var _this$state$error;
+      const message = ((_this$state$error = this.state.error) === null || _this$state$error === void 0 ? void 0 : _this$state$error.message) || '页面渲染失败';
       return /*#__PURE__*/React.createElement("div", {
         className: "boot-loader"
       }, /*#__PURE__*/React.createElement("div", {

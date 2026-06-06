@@ -50,7 +50,10 @@ for (const relativePath of sourceFiles) {
   const source = await fs.readFile(absolutePath, "utf8");
   const transformed = Babel.transform(source, {
     filename: relativePath,
-    presets: [["react", { runtime: "classic" }]],
+    presets: [
+      ["env", { targets: { chrome: "79" }, bugfixes: true }],
+      ["react", { runtime: "classic" }],
+    ],
     sourceType: "script",
     comments: true,
   }).code;
