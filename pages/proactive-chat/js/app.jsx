@@ -422,7 +422,7 @@ function mountProactiveApp() {
         throw new Error('root element not found');
     }
 
-    if (rootEl.querySelector('.app')) {
+    if (window.__PROACTIVE_APP_MOUNTED || rootEl.querySelector('.app')) {
         window.__PROACTIVE_APP_MOUNTED = true;
         window.dispatchEvent(new Event('proactive-app-mounted'));
         return;
