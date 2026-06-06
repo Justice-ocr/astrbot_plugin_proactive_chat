@@ -59,6 +59,8 @@ def _is_running_in_docker() -> bool:
 class WebAdminServer:
     """主动消息插件 Web 管理端服务器。"""
 
+    ASTRBOT_PAGE_API_PATH = "/proactive-chat/dashboard"
+
     def __init__(self, plugin: Any):
         # plugin 是主插件实例，Web 端所有状态与操作都通过它间接访问。
         self.plugin = plugin
@@ -100,6 +102,47 @@ class WebAdminServer:
                     "[主动消息] Web 管理端初始化失败喵，已自动禁用，不影响插件主体功能。"
                     f" 可能是 FastAPI / Pydantic 依赖版本不兼容: {e}"
                 )
+
+    def register_astrbot_page_api(self) -> None:
+        """向 AstrBot WebUI 插件 Page 暴露轻量聚合接口。"""
+        context = getattr(self.plugin, "context", None)
+        register = getattr(context, "register_web_api", None)
+        if not callable(register):
+            logger.debug(
+                "[主动消息] 当前 AstrBot 版本未提供 register_web_api，跳过插件卡片接口注册喵。"
+            )
+            return
+
+        async def dashboard_payload(*_args, **_kwargs):
+            return await self.build_astrbot_page_payload()
+
+        # AstrBot 不同版本的 register_web_api 签名可能略有差异，按常见形态逐个尝试。
+        attempts = (
+            lambda: register(
+                self.ASTRBOT_PAGE_API_PATH, dashboard_payload, methods=["GET"]
+            ),
+            lambda: register("GET", self.ASTRBOT_PAGE_API_PATH, dashboard_payload),
+            lambda: register(self.ASTRBOT_PAGE_API_PATH, dashboard_payload),
+        )
+        last_error: Exception | None = None
+        for attempt in attempts:
+            try:
+                attempt()
+                logger.info(
+                    f"[主动消息] 已注册 AstrBot 插件卡片接口喵: {self.ASTRBOT_PAGE_API_PATH}"
+                )
+                return
+            except TypeError as e:
+                last_error = e
+                continue
+            except Exception as e:
+                logger.warning(f"[主动消息] 注册 AstrBot 插件卡片接口失败喵: {e}")
+                return
+
+        if last_error:
+            logger.debug(
+                f"[主动消息] AstrBot 插件卡片接口签名不兼容，已跳过注册喵: {last_error}"
+            )
 
     def _setup_app(self) -> None:
         # 创建 FastAPI 应用，版本号用于控制台元信息展示。
@@ -204,6 +247,11 @@ class WebAdminServer:
         async def get_status():
             # 汇总插件运行状态、计时器与连接数，供首页卡片与轮询逻辑使用。
             return self._build_status_payload()
+
+        @self.app.get("/api/embedded-dashboard")
+        async def embedded_dashboard():
+            # 给 AstrBot 插件 Page 或其它轻量入口复用的聚合快照。
+            return await self.build_astrbot_page_payload()
 
         @self.app.get("/api/markdown-files")
         async def list_markdown_files():
@@ -994,6 +1042,34 @@ class WebAdminServer:
             "group_timer_cards": timer_cards["group_timer_cards"],
             "ws_connections": len(self._ws_connections),
             # 时间戳用于前端判断数据新鲜度或手动刷新完成时间。
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _build_web_admin_url(self) -> str | None:
+        web_admin = self.config.get("web_admin", {})
+        if not web_admin.get("enabled", False):
+            return None
+
+        host = str(web_admin.get("host", "127.0.0.1") or "127.0.0.1")
+        port = int(web_admin.get("port", 4100) or 4100)
+        display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+        return f"http://{display_host}:{port}/"
+
+    async def build_astrbot_page_payload(self) -> dict[str, Any]:
+        """构造 AstrBot 插件卡片 Page 的轻量运行快照。"""
+        notifications = await self._build_notification_payload()
+        return {
+            "ok": True,
+            "status": self._build_status_payload(),
+            "jobs": self._collect_jobs(),
+            "sessions": self._list_known_session_summaries(),
+            "notifications_meta": notifications.get("meta", {}),
+            "web_admin": {
+                "available": bool(self._web_admin_available and self.app),
+                "enabled": bool(self.config.get("web_admin", {}).get("enabled", False)),
+                "url": self._build_web_admin_url(),
+                "auth_required": self._auth_enabled,
+            },
             "timestamp": datetime.now().isoformat(),
         }
 

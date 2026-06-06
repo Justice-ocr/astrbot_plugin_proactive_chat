@@ -135,6 +135,7 @@ class LifecycleMixin:
         # 启动 Web 管理端
         try:
             if self.web_admin_server:
+                self.web_admin_server.register_astrbot_page_api()
                 await self.web_admin_server.start()
         except Exception as e:
             logger.error(f"[主动消息] Web 管理端启动失败喵: {e}")

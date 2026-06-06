@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime
 from typing import Any
 
@@ -142,6 +143,10 @@ class LlmMixin:
             settings.get("include_bot_messages", True),
             default=True,
         )
+        include_context_insights = self._parse_bool_setting(
+            settings.get("include_context_insights", True),
+            default=True,
+        )
         bot_identifiers = self._parse_bot_identifiers(settings.get("bot_identifiers"))
         platform_history_prompt = str(
             settings.get("platform_history_prompt") or ""
@@ -152,6 +157,7 @@ class LlmMixin:
             "platform_history_count": count,
             "platform_history_prompt": platform_history_prompt,
             "include_bot_messages": include_bot_messages,
+            "include_context_insights": include_context_insights,
             "bot_identifiers": bot_identifiers,
             "platform_context_max_chars": max_chars,
         }
@@ -326,6 +332,203 @@ class LlmMixin:
             "[真实平台聊天流水开始]", "【真实平台聊天流水开始】"
         ).replace("[真实平台聊天流水结束]", "【真实平台聊天流水结束】")
 
+    def _extract_platform_record_timestamp(self, record: Any) -> float | None:
+        """宽松提取平台流水时间戳，无法识别时返回 None。"""
+        for field in (
+            "timestamp",
+            "time",
+            "created_at",
+            "created",
+            "message_time",
+            "send_time",
+        ):
+            raw_value = self._get_platform_record_field(record, field, None)
+            if raw_value is None:
+                continue
+
+            if isinstance(raw_value, (int, float)):
+                timestamp = float(raw_value)
+                # 兼容毫秒时间戳。
+                if timestamp > 10_000_000_000:
+                    timestamp = timestamp / 1000
+                return timestamp if timestamp > 0 else None
+
+            if isinstance(raw_value, str):
+                text = raw_value.strip()
+                if not text:
+                    continue
+                try:
+                    timestamp = float(text)
+                    if timestamp > 10_000_000_000:
+                        timestamp = timestamp / 1000
+                    return timestamp if timestamp > 0 else None
+                except ValueError:
+                    pass
+
+                try:
+                    normalized = text.replace("Z", "+00:00")
+                    parsed = datetime.fromisoformat(normalized)
+                    return parsed.timestamp()
+                except ValueError:
+                    continue
+
+        return None
+
+    def _format_elapsed_seconds(self, seconds: float | int | None) -> str | None:
+        if seconds is None:
+            return None
+
+        try:
+            seconds = max(0, int(seconds))
+        except Exception:
+            return None
+
+        if seconds < 60:
+            return f"{seconds} 秒"
+        if seconds < 3600:
+            return f"{seconds // 60} 分钟"
+        if seconds < 86400:
+            return f"{seconds // 3600} 小时 {seconds % 3600 // 60} 分钟"
+        return f"{seconds // 86400} 天 {seconds % 86400 // 3600} 小时"
+
+    def _build_platform_conversation_insights(
+        self,
+        metas: list[dict[str, Any]],
+        unanswered_count: int,
+    ) -> str:
+        """基于最近平台流水生成轻量态势摘要，辅助模型选择主动开口策略。"""
+        if not metas:
+            return ""
+
+        participants: list[str] = []
+        bot_count = 0
+        user_count = 0
+        non_text_count = 0
+        for meta in metas:
+            sender = str(meta.get("sender_name") or "未知用户")
+            if sender not in participants:
+                participants.append(sender)
+            if meta.get("is_bot"):
+                bot_count += 1
+            else:
+                user_count += 1
+            if meta.get("looks_non_text"):
+                non_text_count += 1
+
+        last_meta = metas[-1]
+        last_sender = str(last_meta.get("sender_name") or "未知用户")
+        last_text = str(last_meta.get("text") or "")
+        last_time = last_meta.get("timestamp")
+        elapsed = (
+            self._format_elapsed_seconds(time.time() - float(last_time))
+            if isinstance(last_time, (int, float))
+            else None
+        )
+
+        recent_bot_tail = 0
+        for meta in reversed(metas):
+            if meta.get("is_bot"):
+                recent_bot_tail += 1
+            else:
+                break
+
+        guidance = "优先自然延续最近话题，避免机械总结聊天记录。"
+        if unanswered_count > 0 or recent_bot_tail > 0 or last_meta.get("is_bot"):
+            guidance = (
+                "最近 Bot 已主动过或仍未收到回应，应更克制，避免连续追问和刷屏感。"
+            )
+        elif user_count == 0:
+            guidance = "最近缺少用户侧内容，应使用轻量问候或低压力新话题。"
+        elif len(participants) >= 3:
+            guidance = "这是多人场景，应抛出开放但不点名单人的话题。"
+
+        snippets = [
+            f"- 最近可读消息：{len(metas)} 条，其中用户侧 {user_count} 条、Bot 侧 {bot_count} 条。",
+            f"- 最近发言者：{last_sender}"
+            + (f"，距现在约 {elapsed}" if elapsed else "")
+            + "。",
+            f"- 参与者概览：{', '.join(participants[:6])}"
+            + (" 等" if len(participants) > 6 else "")
+            + "。",
+            f"- 建议策略：{guidance}",
+        ]
+
+        if unanswered_count > 0:
+            snippets.append(f"- 当前未回复次数：{unanswered_count} 次。")
+        if non_text_count > 0:
+            snippets.append(
+                f"- 最近包含 {non_text_count} 条非纯文本内容，提及时只用笼统表达。"
+            )
+        if last_text:
+            preview = last_text[:80] + ("..." if len(last_text) > 80 else "")
+            snippets.append(f"- 最新消息摘录：{preview}")
+
+        return "[对话态势摘要]\n" + "\n".join(snippets)
+
+    def _extract_history_message_text(self, message: Any) -> str:
+        if hasattr(message, "to_dict"):
+            try:
+                message = message.to_dict()
+            except Exception:
+                return ""
+
+        if isinstance(message, dict):
+            content = message.get("content")
+        else:
+            content = getattr(message, "content", "")
+
+        if isinstance(content, str):
+            return self._sanitize_platform_context_text(content)
+        if isinstance(content, list):
+            return self._sanitize_platform_context_text(
+                self._extract_platform_message_text(content)
+            )
+        if content is None:
+            return ""
+        return self._sanitize_platform_context_text(content)
+
+    def _build_conversation_history_insight_context(
+        self,
+        history: list[Any],
+        unanswered_count: int,
+    ) -> dict[str, str] | None:
+        """为仅使用 AstrBot 对话历史的模式补充结构化态势摘要。"""
+        if not history:
+            return None
+
+        recent_messages = history[-12:]
+        role_counts: dict[str, int] = {}
+        for message in recent_messages:
+            if isinstance(message, dict):
+                role = str(message.get("role") or "unknown")
+            else:
+                role = str(getattr(message, "role", "unknown"))
+            role_counts[role] = role_counts.get(role, 0) + 1
+
+        last_message = recent_messages[-1]
+        if isinstance(last_message, dict):
+            last_role = str(last_message.get("role") or "unknown")
+        else:
+            last_role = str(getattr(last_message, "role", "unknown"))
+        last_text = self._extract_history_message_text(last_message)
+        last_preview = last_text[:100] + ("..." if len(last_text) > 100 else "")
+
+        guidance = "优先接续最后一个仍有余温的话题。"
+        if unanswered_count > 0 or last_role in {"assistant", "bot"}:
+            guidance = "最近一次更像 Bot 已开口但未被回应，应降低压迫感，避免连续追问。"
+        elif not last_preview:
+            guidance = "最近消息缺少可读文本，应轻量问候或开启低门槛话题。"
+
+        content = (
+            "[对话态势摘要]\n"
+            f"- 最近对话历史：{len(recent_messages)} 条，角色分布：{role_counts}。\n"
+            f"- 最新历史角色：{last_role}。\n"
+            f"- 当前未回复次数：{unanswered_count} 次。\n"
+            f"- 建议策略：{guidance}\n"
+            f"- 最新历史摘录：{last_preview or '无可读文本'}"
+        )
+        return {"role": "system", "content": content}
+
     def _is_platform_bot_record(
         self,
         record: Any,
@@ -362,6 +565,7 @@ class LlmMixin:
     ) -> tuple[dict[str, str] | None, int, int]:
         """将平台聊天流水格式化为单条上下文消息。"""
         lines: list[str] = []
+        metas: list[dict[str, Any]] = []
         used_count = 0
 
         for record in records:
@@ -386,15 +590,29 @@ class LlmMixin:
 
             used_count += 1
             lines.append(f"{used_count}. {sender_name}: {text}")
+            metas.append(
+                {
+                    "sender_name": sender_name,
+                    "text": text,
+                    "is_bot": is_bot,
+                    "timestamp": self._extract_platform_record_timestamp(record),
+                    "looks_non_text": text.startswith("[") and text.endswith("]"),
+                }
+            )
 
         if not lines:
             return None, 0, 0
 
         max_chars = max(0, int(max_chars or 0))
         trimmed_lines = list(lines)
+        trimmed_metas = list(metas)
         dropped_count = 0
 
-        def _build_content(history_lines: list[str], dropped: int) -> str:
+        def _build_content(
+            history_lines: list[str],
+            history_metas: list[dict[str, Any]],
+            dropped: int,
+        ) -> str:
             dropped_hint = (
                 f"注意：较早历史已截断 {dropped} 条，仅保留最新片段。\n"
                 if dropped > 0
@@ -427,21 +645,35 @@ class LlmMixin:
                 )
 
             now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
+            insights = ""
+            if (context_settings or {}).get("include_context_insights", True):
+                insights = self._build_platform_conversation_insights(
+                    history_metas,
+                    unanswered_count=unanswered_count,
+                )
             content = (
                 prompt_template.replace("{{platform_history_lines}}", body)
+                .replace("{{conversation_insights}}", insights)
                 .replace("{{unanswered_count}}", str(unanswered_count))
                 .replace("{{current_time}}", now_str)
             )
+            if insights and "{{conversation_insights}}" not in prompt_template:
+                marker = "[真实平台聊天流水开始]"
+                if marker in content:
+                    content = content.replace(marker, f"{insights}\n\n{marker}", 1)
+                else:
+                    content = f"{insights}\n\n{content}"
             if dropped_hint:
                 content = f"{dropped_hint}{content}"
             return content
 
-        content = _build_content(trimmed_lines, dropped_count)
+        content = _build_content(trimmed_lines, trimmed_metas, dropped_count)
         if max_chars > 0 and len(content) > max_chars:
             while len(trimmed_lines) > 1 and len(content) > max_chars:
                 trimmed_lines.pop(0)
+                trimmed_metas.pop(0)
                 dropped_count += 1
-                content = _build_content(trimmed_lines, dropped_count)
+                content = _build_content(trimmed_lines, trimmed_metas, dropped_count)
 
             if len(content) > max_chars:
                 overflow = len(content) - max_chars + 3
@@ -450,7 +682,7 @@ class LlmMixin:
                     trimmed_lines[-1] = f"{last_line[:-overflow]}..."
                 else:
                     trimmed_lines[-1] = "..."
-                content = _build_content(trimmed_lines, dropped_count)
+                content = _build_content(trimmed_lines, trimmed_metas, dropped_count)
 
             if len(content) > max_chars:
                 hard_limit = max(0, max_chars - 7)
@@ -499,7 +731,19 @@ class LlmMixin:
             )
 
         if source_mode == "conversation_history":
-            effective_history = conversation_history
+            insight_context = (
+                self._build_conversation_history_insight_context(
+                    conversation_history,
+                    unanswered_count=unanswered_count,
+                )
+                if settings.get("include_context_insights", True)
+                else None
+            )
+            effective_history = (
+                [insight_context, *conversation_history]
+                if insight_context
+                else conversation_history
+            )
         elif source_mode == "platform_message_history":
             if platform_context:
                 effective_history = [platform_context]

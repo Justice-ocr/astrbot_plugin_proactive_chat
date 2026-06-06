@@ -87,6 +87,12 @@
                         "default": true,
                         "hint": "开启后，会把 Bot 自己在平台中的历史发言也一起提供给模型；关闭后，只提供用户侧聊天内容。开启后更有利于模型理解最近对话来回过程，但也可能让上下文更长。"
                     },
+                    "include_context_insights": {
+                        "description": "生成对话态势摘要",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后，插件会根据最近聊天生成一段轻量态势摘要，帮助模型判断应该延续话题、轻量问候还是克制发言。"
+                    },
                     "bot_identifiers": {
                         "description": "Bot 标识符列表（逗号分隔）",
                         "type": "string",
@@ -363,6 +369,12 @@
                         "type": "bool",
                         "default": true,
                         "hint": "开启后，会把 Bot 自己在平台中的历史发言也一起提供给模型；关闭后，只提供用户侧聊天内容。开启后更有利于模型理解最近对话来回过程，但也可能让上下文更长。"
+                    },
+                    "include_context_insights": {
+                        "description": "生成对话态势摘要",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后，插件会根据最近聊天生成一段轻量态势摘要，帮助模型判断应该延续话题、抛出开放问题还是减少刷屏感。"
                     },
                     "bot_identifiers": {
                         "description": "Bot 标识符列表（逗号分隔）",

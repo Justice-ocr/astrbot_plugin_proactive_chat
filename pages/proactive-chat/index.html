@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主动消息</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f7f8fb;
+            --panel: #ffffff;
+            --text: #1f2937;
+            --muted: #667085;
+            --line: #d8dee8;
+            --accent: #24786d;
+            --accent-soft: #e4f4f1;
+            --warn: #a15c00;
+            --danger: #b42318;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #101418;
+                --panel: #171d24;
+                --text: #edf2f7;
+                --muted: #aab4c0;
+                --line: #29323d;
+                --accent: #67c7ba;
+                --accent-soft: #12312d;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            letter-spacing: 0;
+        }
+
+        .shell {
+            width: min(1180px, calc(100vw - 32px));
+            margin: 0 auto;
+            padding: 24px 0 32px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 26px;
+            line-height: 1.2;
+            font-weight: 750;
+        }
+
+        .subtitle {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        button,
+        .button {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            min-height: 36px;
+            padding: 0 13px;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .primary {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .metric-value {
+            margin-top: 8px;
+            font-size: 25px;
+            line-height: 1.1;
+            font-weight: 760;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+            gap: 14px;
+        }
+
+        h2 {
+            margin: 0 0 12px;
+            font-size: 16px;
+            line-height: 1.35;
+        }
+
+        .list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 11px 12px;
+            min-height: 58px;
+        }
+
+        .row-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 14px;
+            font-weight: 650;
+        }
+
+        .row-meta,
+        .empty,
+        .error {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .badge {
+            border-radius: 999px;
+            padding: 4px 9px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .error {
+            color: var(--danger);
+        }
+
+        @media (max-width: 860px) {
+            .topbar,
+            .layout {
+                grid-template-columns: 1fr;
+                display: grid;
+            }
+
+            .actions {
+                justify-content: flex-start;
+            }
+
+            .grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 520px) {
+            .shell {
+                width: min(100vw - 20px, 1180px);
+                padding-top: 16px;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="shell">
+        <section class="topbar">
+            <div>
+                <h1>主动消息</h1>
+                <div id="subtitle" class="subtitle">正在读取运行状态</div>
+            </div>
+            <div class="actions">
+                <button id="refreshBtn" type="button">刷新</button>
+                <a id="fullConsoleBtn" class="button primary" href="http://127.0.0.1:4100/" target="_blank" rel="noreferrer">完整控制台</a>
+            </div>
+        </section>
+
+        <section class="grid">
+            <div class="panel">
+                <div class="metric-label">会话</div>
+                <div id="sessionsCount" class="metric-value">-</div>
+            </div>
+            <div class="panel">
+                <div class="metric-label">调度任务</div>
+                <div id="jobsCount" class="metric-value">-</div>
+            </div>
+            <div class="panel">
+                <div class="metric-label">实时计时器</div>
+                <div id="timersCount" class="metric-value">-</div>
+            </div>
+            <div class="panel">
+                <div class="metric-label">未读通知</div>
+                <div id="unreadCount" class="metric-value">-</div>
+            </div>
+        </section>
+
+        <section class="layout">
+            <div class="panel">
+                <h2>即将执行</h2>
+                <div id="jobsList" class="list">
+                    <div class="empty">暂无任务数据</div>
+                </div>
+            </div>
+            <div class="panel">
+                <h2>已知会话</h2>
+                <div id="sessionsList" class="list">
+                    <div class="empty">暂无会话数据</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const pluginName = 'astrbot_plugin_proactive_chat';
+            const apiPath = '/proactive-chat/dashboard';
+
+            const $ = (id) => document.getElementById(id);
+
+            function fmtTime(value) {
+                if (!value) return '未调度';
+                const d = new Date(value);
+                if (Number.isNaN(d.getTime())) return '时间未知';
+                return d.toLocaleString();
+            }
+
+            function escapeHtml(text) {
+                return String(text == null ? '' : text)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            async function callBridge() {
+                const bridge = window.AstrBotPlugin || window.parent && window.parent.AstrBotPlugin;
+                if (bridge && typeof bridge.callApi === 'function') {
+                    return bridge.callApi(apiPath, { method: 'GET' });
+                }
+
+                const candidates = [
+                    `/api/plugin/${pluginName}${apiPath}`,
+                    `/api/plugins/${pluginName}${apiPath}`,
+                    `/api/plugin/${pluginName}/embedded-dashboard`,
+                    `/api/plugins/${pluginName}/embedded-dashboard`,
+                ];
+
+                let lastError = null;
+                for (const url of candidates) {
+                    try {
+                        const res = await fetch(url, { credentials: 'same-origin' });
+                        if (!res.ok) {
+                            lastError = new Error(`HTTP ${res.status}`);
+                            continue;
+                        }
+                        return await res.json();
+                    } catch (e) {
+                        lastError = e;
+                    }
+                }
+                throw lastError || new Error('无法连接插件接口');
+            }
+
+            function render(payload) {
+                const status = payload.status || {};
+                const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+                const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+                const notificationsMeta = payload.notifications_meta || {};
+                const webAdmin = payload.web_admin || {};
+
+                $('subtitle').textContent = status.running
+                    ? `运行中，版本 ${status.version || '-'}`
+                    : '状态未知';
+                $('sessionsCount').textContent = String(status.sessions_count ?? sessions.length ?? 0);
+                $('jobsCount').textContent = String(status.jobs_count ?? jobs.length ?? 0);
+                $('timersCount').textContent = String(status.timer_cards_total ?? 0);
+                $('unreadCount').textContent = String(notificationsMeta.unread_count ?? 0);
+
+                const consoleBtn = $('fullConsoleBtn');
+                if (webAdmin.url) {
+                    consoleBtn.href = webAdmin.url;
+                    consoleBtn.style.display = 'inline-flex';
+                } else {
+                    consoleBtn.style.display = 'none';
+                }
+
+                const sortedJobs = jobs.slice().sort((a, b) => {
+                    const at = a.next_run_time ? new Date(a.next_run_time).getTime() : Number.MAX_SAFE_INTEGER;
+                    const bt = b.next_run_time ? new Date(b.next_run_time).getTime() : Number.MAX_SAFE_INTEGER;
+                    return at - bt;
+                }).slice(0, 6);
+
+                $('jobsList').innerHTML = sortedJobs.length ? sortedJobs.map((job) => `
+                    <div class="row">
+                        <div>
+                            <div class="row-title">${escapeHtml(job.session_display_name || job.session_name || job.id)}</div>
+                            <div class="row-meta">${escapeHtml(fmtTime(job.next_run_time))} · 未回复 ${escapeHtml(job.unanswered_count ?? 0)} 次</div>
+                        </div>
+                        <div class="badge">${escapeHtml(job.source_mode || 'context')}</div>
+                    </div>
+                `).join('') : '<div class="empty">暂无调度任务</div>';
+
+                $('sessionsList').innerHTML = sessions.slice(0, 8).map((session) => `
+                    <div class="row">
+                        <div>
+                            <div class="row-title">${escapeHtml(session.session_display_name || session.session_name || session.session)}</div>
+                            <div class="row-meta">未回复 ${escapeHtml(session.unanswered_count ?? 0)} 次</div>
+                        </div>
+                        <div class="badge">${session.has_override ? '已覆写' : '全局'}</div>
+                    </div>
+                `).join('') || '<div class="empty">暂无会话数据</div>';
+            }
+
+            async function refresh() {
+                $('subtitle').textContent = '正在读取运行状态';
+                try {
+                    render(await callBridge());
+                } catch (e) {
+                    $('subtitle').innerHTML = `<span class="error">${escapeHtml(e.message || '加载失败')}</span>`;
+                }
+            }
+
+            $('refreshBtn').addEventListener('click', refresh);
+            refresh();
+            window.setInterval(refresh, 5000);
+        })();
+    </script>
+</body>
+
+</html>
