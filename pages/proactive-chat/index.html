@@ -8,7 +8,7 @@
     <title>主动消息管理端</title>
 
     <!-- favicon 指向插件根目录的 logo，便于浏览器标签页识别。 -->
-    <link rel="icon" type="image/png" href="../logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
 
     <!-- 预加载字体样式，减少首屏闪烁。 -->
     <link rel="preload" href="fonts/outfit.css" as="style">
@@ -17,6 +17,9 @@
     <!-- 全局样式表，承载布局、卡片、主题变量等基础样式。 -->
     <link rel="stylesheet" href="css/style.css">
     <script src="/api/plugin/page/bridge-sdk.js"></script>
+    <script>
+        window.__PROACTIVE_AUTH_PENDING = true;
+    </script>
 
     <!-- 以 UMD 方式引入 React / Babel / MUI。
          根据用户时区/语言自动选择 CDN：国内走 npmmirror，国外走 unpkg。 -->
@@ -201,12 +204,10 @@
     <div id="root"></div>
 
     <!-- 工具脚本必须先于 JSX 模块加载，以便后者可直接使用 window 上的工具对象。 -->
-    <script>
-        window.ProactiveLoader.queueScript("js/utils/auth.js", false);
-        window.ProactiveLoader.queueScript("js/utils/http.js", false);
-        window.ProactiveLoader.queueScript("js/utils/formatters.js", false);
-        window.ProactiveLoader.queueScript("js/utils/markdown.js", false);
-    </script>
+    <script src="js/utils/auth.js"></script>
+    <script src="js/utils/http.js"></script>
+    <script src="js/utils/formatters.js"></script>
+    <script src="js/utils/markdown.js"></script>
 
     <script>
         // 鉴权探测流程脚本，必须在 window.AuthUtil 声明后运行。
@@ -391,20 +392,18 @@
     </script>
 
     <!-- 以下 JSX 文件按“基础能力 -> 布局组件 -> 页面视图 -> 应用入口”的顺序加载。 -->
-    <script>
-        window.ProactiveLoader.queueScript("js/context/AppContext.jsx", true);
-        window.ProactiveLoader.queueScript("js/hooks/useApi.js", true);
-        window.ProactiveLoader.queueScript("js/hooks/useWebSocket.js", true);
-        window.ProactiveLoader.queueScript("js/components/layout/Sidebar.jsx", true);
-        window.ProactiveLoader.queueScript("js/components/layout/Header.jsx", true);
-        window.ProactiveLoader.queueScript("js/views/StatusView.jsx", true);
-        window.ProactiveLoader.queueScript("js/components/config/ConfigRenderer.jsx", true);
-        window.ProactiveLoader.queueScript("js/views/ConfigView.jsx", true);
-        window.ProactiveLoader.queueScript("js/views/TasksView.jsx", true);
-        window.ProactiveLoader.queueScript("js/views/NotificationsView.jsx", true);
-        window.ProactiveLoader.queueScript("js/views/MarkdownDocsView.jsx", true);
-        window.ProactiveLoader.queueScript("js/app.jsx", true);
-    </script>
+    <script type="text/babel" src="js/context/AppContext.jsx"></script>
+    <script type="text/babel" src="js/hooks/useApi.js"></script>
+    <script type="text/babel" src="js/hooks/useWebSocket.js"></script>
+    <script type="text/babel" src="js/components/layout/Sidebar.jsx"></script>
+    <script type="text/babel" src="js/components/layout/Header.jsx"></script>
+    <script type="text/babel" src="js/views/StatusView.jsx"></script>
+    <script type="text/babel" src="js/components/config/ConfigRenderer.jsx"></script>
+    <script type="text/babel" src="js/views/ConfigView.jsx"></script>
+    <script type="text/babel" src="js/views/TasksView.jsx"></script>
+    <script type="text/babel" src="js/views/NotificationsView.jsx"></script>
+    <script type="text/babel" src="js/views/MarkdownDocsView.jsx"></script>
+    <script type="text/babel" src="js/app.jsx"></script>
 </body>
 
 </html>
