@@ -543,7 +543,11 @@
                 window_seconds: windowSeconds,
                 progress_percent: progress,
                 unanswered_count: source.unanswered_count,
-                max_unanswered_times: source.max_unanswered_times
+                max_unanswered_times: source.max_unanswered_times,
+                last_schedule_strategy: source.last_schedule_strategy,
+                last_schedule_reason: source.last_schedule_reason,
+                last_schedule_rule: source.last_schedule_rule,
+                last_schedule_source: source.last_schedule_source
             });
             seen[key] = true;
             seenSessions[id] = true;
@@ -573,6 +577,37 @@
         return "计时中";
     }
 
+    function scheduleStrategyLabel(item) {
+        var strategy = String(item && item.last_schedule_strategy || "").toLowerCase();
+        var source = String(item && item.last_schedule_source || "").toLowerCase();
+        if (strategy === "contextual" || source === "recent_context") return "语境预测";
+        if (strategy === "random" || source === "random_interval") return "随机区间";
+        return "";
+    }
+
+    function scheduleReasonLabel(item) {
+        var rule = String(item && item.last_schedule_rule || "");
+        var reason = String(item && item.last_schedule_reason || "");
+        var labels = {
+            explicit_delay: "明确延后",
+            tomorrow: "明天再聊",
+            do_not_disturb: "暂不打扰",
+            sleep_night: "睡眠休息",
+            movie: "观影追剧",
+            meeting_or_class: "会议课程",
+            commute: "通勤路上",
+            meal: "用餐时间",
+            shower: "短时离开",
+            game: "游戏中",
+            short_later: "稍后再聊"
+        };
+        if (labels[rule]) return labels[rule];
+        if (reason.indexOf("context:explicit_delay:") === 0) {
+            return "明确延后 " + reason.replace("context:explicit_delay:", "");
+        }
+        return reason;
+    }
+
     function renderTimerList(items) {
         if (!items.length) return '<div class="pc-empty">🫧 暂无运行中的会话计时器</div>';
         var html = ['<div class="pc-timer-list">'];
@@ -585,6 +620,10 @@
             var targetText = item.target_time ? formatDate(Number(item.target_time) * 1000) : "--";
             var chipClass = hasCountdown && Number(item.remaining_seconds || 0) > 300 ? "is-ok" : "is-warn";
             var detailText = (item.timer_kind_label || item.title || item.timer_kind || "计时器") + " · 目标时间 " + targetText + " · 未回复 " + text(item.unanswered_count, "0") + "/" + text(item.max_unanswered_times, "0");
+            var strategyText = scheduleStrategyLabel(item);
+            var reasonText = scheduleReasonLabel(item);
+            if (strategyText) detailText += " · 调度 " + strategyText;
+            if (reasonText && strategyText === "语境预测") detailText += " · " + reasonText;
             if (item.inactive_reason) detailText += " · " + item.inactive_reason;
             html.push('<div class="pc-timer-card ', hasCountdown ? "" : "is-pending", '">');
             html.push('<div class="pc-timer-top"><div><div class="pc-row-title">', escapeHtml(item.session_display_name || item.session_name || item.session || item.session_id || item.id || "会话"), '</div>');
@@ -614,6 +653,10 @@
             var statusLabel = job.status_label || (isPending ? "待调度" : "已调度");
             var nextTime = job.next_run_time || job.next_trigger_time;
             var detailText = "下次运行: " + formatDate(timestampMs(nextTime) || nextTime) + " · 来源: " + text(job.source_mode, "--") + " · 未回复: " + text(job.unanswered_count, "0") + "/" + text(job.max_unanswered_times, "0");
+            var strategyText = scheduleStrategyLabel(job);
+            var reasonText = scheduleReasonLabel(job);
+            if (strategyText) detailText += " · 调度: " + strategyText;
+            if (reasonText && strategyText === "语境预测") detailText += " · " + reasonText;
             if (job.inactive_reason) detailText += " · " + job.inactive_reason;
             html.push('<div class="pc-row">');
             html.push('<div class="pc-row-title">', escapeHtml(job.session_display_name || job.session_name || id || "任务"), ' <span class="pc-inline-chip ', isPending ? "is-warn" : "is-ok", '">', escapeHtml(statusLabel), '</span></div>');

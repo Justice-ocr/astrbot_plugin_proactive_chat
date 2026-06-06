@@ -127,6 +127,23 @@
                             "step": 30
                         }
                     },
+                    "enable_contextual_timing": {
+                        "description": "启用语境触发时间预测",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后会根据最近消息中的明显语义调整下一次触发时间，例如晚安、看电影、开会、在路上等；没有识别到明确语境时仍使用随机区间"
+                    },
+                    "contextual_timing_history_count": {
+                        "description": "语境预测读取消息条数",
+                        "type": "int",
+                        "default": 8,
+                        "hint": "用于判断下一次触发时间的最近消息条数。数值越大越容易参考更早的上下文，但也可能引入无关内容",
+                        "slider": {
+                            "min": 1,
+                            "max": 30,
+                            "step": 1
+                        }
+                    },
                     "quiet_hours": {
                         "description": "免打扰时段 (24小时制)",
                         "type": "string",
@@ -408,6 +425,23 @@
                             "min": 1,
                             "max": 2880,
                             "step": 30
+                        }
+                    },
+                    "enable_contextual_timing": {
+                        "description": "启用语境触发时间预测",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后会根据最近消息中的明显语义调整下一次触发时间，例如晚安、看电影、开会、在路上等；没有识别到明确语境时仍使用随机区间"
+                    },
+                    "contextual_timing_history_count": {
+                        "description": "语境预测读取消息条数",
+                        "type": "int",
+                        "default": 8,
+                        "hint": "用于判断下一次触发时间的最近消息条数。数值越大越容易参考更早的上下文，但也可能引入无关内容",
+                        "slider": {
+                            "min": 1,
+                            "max": 30,
+                            "step": 1
                         }
                     },
                     "quiet_hours": {

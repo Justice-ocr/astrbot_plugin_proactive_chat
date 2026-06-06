@@ -1800,6 +1800,12 @@ class WebAdminServer:
                     "last_schedule_random_interval_seconds": session_data.get(
                         "last_schedule_random_interval_seconds"
                     ),
+                    "last_schedule_strategy": session_data.get(
+                        "last_schedule_strategy"
+                    ),
+                    "last_schedule_reason": session_data.get("last_schedule_reason"),
+                    "last_schedule_rule": session_data.get("last_schedule_rule"),
+                    "last_schedule_source": session_data.get("last_schedule_source"),
                     # 透出当前会话配置中的调度区间与免打扰时段，供任务卡片展示。
                     "schedule_min_interval_minutes": schedule_settings.get(
                         "min_interval_minutes"
@@ -1873,6 +1879,12 @@ class WebAdminServer:
                     "last_schedule_random_interval_seconds": session_data.get(
                         "last_schedule_random_interval_seconds"
                     ),
+                    "last_schedule_strategy": session_data.get(
+                        "last_schedule_strategy"
+                    ),
+                    "last_schedule_reason": session_data.get("last_schedule_reason"),
+                    "last_schedule_rule": session_data.get("last_schedule_rule"),
+                    "last_schedule_source": session_data.get("last_schedule_source"),
                     "schedule_min_interval_minutes": schedule_settings.get(
                         "min_interval_minutes"
                     ),
@@ -1945,6 +1957,12 @@ class WebAdminServer:
                     "last_schedule_random_interval_seconds": session_data.get(
                         "last_schedule_random_interval_seconds"
                     ),
+                    "last_schedule_strategy": session_data.get(
+                        "last_schedule_strategy"
+                    ),
+                    "last_schedule_reason": session_data.get("last_schedule_reason"),
+                    "last_schedule_rule": session_data.get("last_schedule_rule"),
+                    "last_schedule_source": session_data.get("last_schedule_source"),
                     "schedule_min_interval_minutes": schedule_settings.get(
                         "min_interval_minutes"
                     ),
