@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import math
 import os
@@ -32,6 +33,44 @@ except ImportError:
     FASTAPI_AVAILABLE = False
     logger.warning(
         "[主动消息] FastAPI 未安装喵，Web 管理端不可用喵。请安装: pip install fastapi uvicorn"
+    )
+
+
+def _patch_starlette_router_startup_kwargs() -> None:
+    """兼容 FastAPI 与较新 Starlette Router 的启动参数签名差异。"""
+    try:
+        from starlette.routing import Router
+    except Exception as e:
+        logger.debug(f"[主动消息] 检查 Starlette Router 兼容性失败喵: {e}")
+        return
+
+    init = Router.__init__
+    if getattr(init, "_proactive_chat_startup_patch", False):
+        return
+
+    try:
+        params = inspect.signature(init).parameters
+    except (TypeError, ValueError) as e:
+        logger.debug(f"[主动消息] 读取 Starlette Router 签名失败喵: {e}")
+        return
+
+    unsupported = {
+        name
+        for name in ("on_startup", "on_shutdown")
+        if name not in params
+    }
+    if not unsupported:
+        return
+
+    def patched_init(self, *args, **kwargs):
+        for name in unsupported:
+            kwargs.pop(name, None)
+        return init(self, *args, **kwargs)
+
+    patched_init._proactive_chat_startup_patch = True
+    Router.__init__ = patched_init
+    logger.info(
+        "[主动消息] 已应用 FastAPI / Starlette Router 启动参数兼容补丁喵。"
     )
 
 
@@ -145,6 +184,7 @@ class WebAdminServer:
             )
 
     def _setup_app(self) -> None:
+        _patch_starlette_router_startup_kwargs()
         # 创建 FastAPI 应用，版本号用于控制台元信息展示。
         self.app = FastAPI(
             title="主动消息管理端",
