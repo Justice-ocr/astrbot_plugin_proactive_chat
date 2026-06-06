@@ -87,6 +87,12 @@
                         "default": true,
                         "hint": "开启后，会把 Bot 自己在平台中的历史发言也一起提供给模型；关闭后，只提供用户侧聊天内容。开启后更有利于模型理解最近对话来回过程，但也可能让上下文更长。"
                     },
+                    "include_context_insights": {
+                        "description": "生成对话态势摘要",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后，插件会根据最近聊天生成一段轻量态势摘要，帮助模型判断应该延续话题、轻量问候还是克制发言。"
+                    },
                     "bot_identifiers": {
                         "description": "Bot 标识符列表（逗号分隔）",
                         "type": "string",
@@ -119,6 +125,23 @@
                             "min": 1,
                             "max": 2880,
                             "step": 30
+                        }
+                    },
+                    "enable_contextual_timing": {
+                        "description": "启用语境触发时间预测",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后会根据最近消息中的明显语义调整下一次触发时间，例如晚安、看电影、开会、在路上等；没有识别到明确语境时仍使用随机区间"
+                    },
+                    "contextual_timing_history_count": {
+                        "description": "语境预测读取消息条数",
+                        "type": "int",
+                        "default": 8,
+                        "hint": "用于判断下一次触发时间的最近消息条数。数值越大越容易参考更早的上下文，但也可能引入无关内容",
+                        "slider": {
+                            "min": 1,
+                            "max": 30,
+                            "step": 1
                         }
                     },
                     "quiet_hours": {
@@ -364,6 +387,12 @@
                         "default": true,
                         "hint": "开启后，会把 Bot 自己在平台中的历史发言也一起提供给模型；关闭后，只提供用户侧聊天内容。开启后更有利于模型理解最近对话来回过程，但也可能让上下文更长。"
                     },
+                    "include_context_insights": {
+                        "description": "生成对话态势摘要",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后，插件会根据最近聊天生成一段轻量态势摘要，帮助模型判断应该延续话题、抛出开放问题还是减少刷屏感。"
+                    },
                     "bot_identifiers": {
                         "description": "Bot 标识符列表（逗号分隔）",
                         "type": "string",
@@ -396,6 +425,23 @@
                             "min": 1,
                             "max": 2880,
                             "step": 30
+                        }
+                    },
+                    "enable_contextual_timing": {
+                        "description": "启用语境触发时间预测",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "开启后会根据最近消息中的明显语义调整下一次触发时间，例如晚安、看电影、开会、在路上等；没有识别到明确语境时仍使用随机区间"
+                    },
+                    "contextual_timing_history_count": {
+                        "description": "语境预测读取消息条数",
+                        "type": "int",
+                        "default": 8,
+                        "hint": "用于判断下一次触发时间的最近消息条数。数值越大越容易参考更早的上下文，但也可能引入无关内容",
+                        "slider": {
+                            "min": 1,
+                            "max": 30,
+                            "step": 1
                         }
                     },
                     "quiet_hours": {

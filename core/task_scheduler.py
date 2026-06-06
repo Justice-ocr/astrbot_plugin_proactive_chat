@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from astrbot.api import logger
@@ -158,6 +159,10 @@ class SchedulerMixin:
             "last_schedule_min_interval_seconds",
             "last_schedule_max_interval_seconds",
             "last_schedule_random_interval_seconds",
+            "last_schedule_strategy",
+            "last_schedule_reason",
+            "last_schedule_rule",
+            "last_schedule_source",
         }
 
         changed = False
@@ -169,6 +174,320 @@ class SchedulerMixin:
                 changed = True
 
         return changed
+
+    def _get_schedule_bounds(self, schedule_conf: dict) -> tuple[int, int]:
+        try:
+            min_minutes = int(schedule_conf.get("min_interval_minutes", 30))
+        except (TypeError, ValueError):
+            min_minutes = 30
+        try:
+            max_minutes = int(schedule_conf.get("max_interval_minutes", 900))
+        except (TypeError, ValueError):
+            max_minutes = 900
+        min_minutes = max(1, min_minutes)
+        max_minutes = max(min_minutes, max_minutes)
+        min_interval = min_minutes * 60
+        max_interval = max_minutes * 60
+        return min_interval, max_interval
+
+    def _clamp_schedule_interval(
+        self,
+        seconds: int | float,
+        min_interval: int,
+        max_interval: int,
+    ) -> int:
+        try:
+            value = int(seconds)
+        except Exception:
+            value = min_interval
+        return max(min_interval, min(value, max_interval))
+
+    def _get_contextual_schedule_settings(self, schedule_conf: dict) -> dict[str, Any]:
+        enabled = schedule_conf.get("enable_contextual_timing", True)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() not in {"0", "false", "off", "no"}
+        else:
+            enabled = bool(enabled)
+
+        try:
+            history_count = int(schedule_conf.get("contextual_timing_history_count", 8))
+        except Exception:
+            history_count = 8
+        history_count = max(1, min(history_count, 30))
+
+        return {"enabled": enabled, "history_count": history_count}
+
+    def _normalize_schedule_text(self, text: Any) -> str:
+        return " ".join(str(text or "").strip().lower().split())
+
+    def _pick_schedule_jitter(self, minutes_min: int, minutes_max: int) -> int:
+        lower = max(1, int(minutes_min)) * 60
+        upper = max(lower, int(minutes_max) * 60)
+        return random.randint(lower, upper)
+
+    def _seconds_until_next_local_time(
+        self,
+        hour: int,
+        minute: int = 0,
+        *,
+        force_next_day: bool = False,
+    ) -> int:
+        now = datetime.now(self.timezone)
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if force_next_day:
+            target = target + timedelta(days=1)
+        if target.timestamp() <= now.timestamp():
+            target = target + timedelta(days=1)
+        return max(60, int(target.timestamp() - now.timestamp()))
+
+    def _predict_contextual_interval_from_text(
+        self,
+        text: str,
+        min_interval: int,
+        max_interval: int,
+    ) -> dict[str, Any] | None:
+        normalized = self._normalize_schedule_text(text)
+        if not normalized:
+            return None
+
+        explicit_minutes = self._extract_explicit_delay_minutes(normalized)
+        if explicit_minutes is not None:
+            seconds = self._clamp_schedule_interval(
+                explicit_minutes * 60, min_interval, max_interval
+            )
+            return {
+                "interval_seconds": seconds,
+                "strategy": "contextual",
+                "rule": "explicit_delay",
+                "reason": f"context:explicit_delay:{explicit_minutes}m",
+            }
+
+        tomorrow_markers = ("明天", "明早", "明日", "tomorrow")
+        if any(marker in normalized for marker in tomorrow_markers):
+            target_hour = 8 if ("明早" in normalized or "morning" in normalized) else 10
+            seconds = self._seconds_until_next_local_time(
+                target_hour,
+                random.randint(0, 45),
+                force_next_day=True,
+            )
+            seconds = self._clamp_schedule_interval(seconds, min_interval, max_interval)
+            return {
+                "interval_seconds": seconds,
+                "strategy": "contextual",
+                "rule": "tomorrow",
+                "reason": "context:tomorrow",
+            }
+
+        rules: list[tuple[str, tuple[str, ...], tuple[int, int]]] = [
+            (
+                "do_not_disturb",
+                ("勿扰", "别打扰", "不要打扰", "别找", "先别", "别发", "别吵", "do not disturb", "dnd"),
+                (240, 480),
+            ),
+            (
+                "sleep_night",
+                ("晚安", "睡了", "睡觉", "先睡", "要睡", "困了", "good night", "gn", "sleep", "bed"),
+                (420, 600),
+            ),
+            (
+                "movie",
+                ("看电影", "电影", "影院", "观影", "追剧", "看剧", "movie", "cinema"),
+                (120, 180),
+            ),
+            (
+                "meeting_or_class",
+                ("开会", "会议", "上课", "考试", "面试", "在忙", "忙完", "工作", "meeting", "class", "exam"),
+                (90, 180),
+            ),
+            (
+                "commute",
+                ("路上", "开车", "地铁", "公交", "通勤", "高铁", "火车", "飞机", "driving", "commute"),
+                (45, 120),
+            ),
+            (
+                "meal",
+                ("吃饭", "午饭", "晚饭", "早饭", "做饭", "外卖", "吃完", "lunch", "dinner", "breakfast"),
+                (45, 90),
+            ),
+            (
+                "shower",
+                ("洗澡", "洗头", "冲澡", "shower"),
+                (30, 60),
+            ),
+            (
+                "game",
+                ("打游戏", "游戏", "开一把", "排位", "game", "gaming"),
+                (60, 150),
+            ),
+            (
+                "short_later",
+                ("等会", "等一下", "一会", "待会", "稍后", "马上", "later", "brb"),
+                (20, 45),
+            ),
+        ]
+
+        for rule, markers, minute_range in rules:
+            if any(marker in normalized for marker in markers):
+                seconds = self._pick_schedule_jitter(*minute_range)
+                seconds = self._clamp_schedule_interval(seconds, min_interval, max_interval)
+                return {
+                    "interval_seconds": seconds,
+                    "strategy": "contextual",
+                    "rule": rule,
+                    "reason": f"context:{rule}",
+                }
+
+        return None
+
+    def _extract_explicit_delay_minutes(self, text: str) -> int | None:
+        total_minutes = 0
+        has_match = False
+
+        half_hour_text = "半小时" in text or "半个小时" in text
+        hour_match = re.search(
+            r"(\d{1,2})\s*(个)?\s*(半)?\s*(小时|钟头|hours?|hrs?|h)",
+            text,
+        )
+        if hour_match:
+            hours = int(hour_match.group(1))
+            if 1 <= hours <= 48:
+                total_minutes += hours * 60
+                if hour_match.group(3):
+                    total_minutes += 30
+                has_match = True
+        elif half_hour_text:
+            total_minutes += 30
+            has_match = True
+
+        minute_match = re.search(
+            r"(\d{1,3})\s*(分钟|分|mins?|minutes?)",
+            text,
+        )
+        if minute_match:
+            minutes = int(minute_match.group(1))
+            if 0 <= minutes <= 1440:
+                total_minutes += minutes
+                has_match = True
+
+        if has_match and 1 <= total_minutes <= 2880:
+            return total_minutes
+
+        return None
+
+    async def _collect_contextual_schedule_texts(
+        self,
+        session_id: str,
+        history_count: int,
+    ) -> list[str]:
+        texts: list[str] = []
+        temp_state = getattr(self, "session_temp_state", {}).get(session_id, {})
+        if isinstance(temp_state, dict):
+            last_text = temp_state.get("last_user_text")
+            if last_text:
+                texts.append(str(last_text))
+
+        load_records = getattr(self, "_load_platform_message_history_records", None)
+        extract_text = getattr(self, "_extract_platform_message_text", None)
+        is_bot_record = getattr(self, "_is_platform_bot_record", None)
+        if callable(load_records) and callable(extract_text):
+            try:
+                records, _count = await load_records(session_id, history_count)
+            except Exception as e:
+                logger.debug(
+                    f"[主动消息] 读取语境调度历史失败，回退到本地最近消息喵: {e}"
+                )
+                records = []
+
+            for record in reversed(list(records or [])):
+                try:
+                    if callable(is_bot_record) and is_bot_record(record):
+                        continue
+                    content = (
+                        record.get("content")
+                        if isinstance(record, dict)
+                        else getattr(record, "content", None)
+                    )
+                    text = extract_text(content)
+                    if text:
+                        texts.append(str(text))
+                except Exception:
+                    continue
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in texts:
+            normalized = self._normalize_schedule_text(item)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(item)
+        return deduped[:history_count]
+
+    async def _build_next_schedule_plan(
+        self,
+        session_id: str,
+        session_config: dict,
+    ) -> dict[str, Any]:
+        schedule_conf = session_config.get("schedule_settings", {})
+        min_interval, max_interval = self._get_schedule_bounds(schedule_conf)
+        random_interval = random.randint(min_interval, max_interval)
+        plan: dict[str, Any] = {
+            "interval_seconds": random_interval,
+            "min_interval_seconds": min_interval,
+            "max_interval_seconds": max_interval,
+            "strategy": "random",
+            "reason": "random:fallback",
+            "rule": "",
+            "source": "random_interval",
+        }
+
+        contextual = self._get_contextual_schedule_settings(schedule_conf)
+        if contextual["enabled"]:
+            texts = await self._collect_contextual_schedule_texts(
+                session_id,
+                contextual["history_count"],
+            )
+            for item in texts:
+                prediction = self._predict_contextual_interval_from_text(
+                    item,
+                    min_interval,
+                    max_interval,
+                )
+                if prediction:
+                    plan.update(prediction)
+                    plan["source"] = "recent_context"
+                    break
+
+        scheduled_at = time.time()
+        next_trigger_time = scheduled_at + int(plan["interval_seconds"])
+        plan["scheduled_at"] = scheduled_at
+        plan["next_trigger_time"] = next_trigger_time
+        plan["run_date"] = datetime.fromtimestamp(next_trigger_time, tz=self.timezone)
+        return plan
+
+    def _write_schedule_plan_to_session(
+        self,
+        session_payload: dict,
+        plan: dict[str, Any],
+        *,
+        include_next_trigger: bool = True,
+    ) -> None:
+        if include_next_trigger:
+            session_payload["next_trigger_time"] = plan["next_trigger_time"]
+        session_payload["last_scheduled_at"] = plan["scheduled_at"]
+        session_payload["last_schedule_min_interval_seconds"] = plan[
+            "min_interval_seconds"
+        ]
+        session_payload["last_schedule_max_interval_seconds"] = plan[
+            "max_interval_seconds"
+        ]
+        session_payload["last_schedule_random_interval_seconds"] = plan[
+            "interval_seconds"
+        ]
+        session_payload["last_schedule_strategy"] = plan.get("strategy", "random")
+        session_payload["last_schedule_reason"] = plan.get("reason", "")
+        session_payload["last_schedule_rule"] = plan.get("rule", "")
+        session_payload["last_schedule_source"] = plan.get("source", "")
 
     def _purge_related_jobs(self, session_id: str) -> None:
         """清理同一目标但不同 UMO 的调度任务，防止幽灵任务。"""
@@ -475,7 +794,10 @@ class SchedulerMixin:
         if not session_config:
             return
 
-        schedule_conf = session_config.get("schedule_settings", {})
+        plan = await self._build_next_schedule_plan(
+            normalized_session_id,
+            session_config,
+        )
 
         async with self.data_lock:
             # 如果存在非规范化的旧键，迁移到规范化键
@@ -500,14 +822,7 @@ class SchedulerMixin:
                 ] = 0
 
             # 计算随机触发时间
-            min_interval = int(schedule_conf.get("min_interval_minutes", 30)) * 60
-            max_interval = max(
-                min_interval, int(schedule_conf.get("max_interval_minutes", 900)) * 60
-            )
-            random_interval = random.randint(min_interval, max_interval)
-            scheduled_at = time.time()
-            next_trigger_time = scheduled_at + random_interval
-            run_date = datetime.fromtimestamp(next_trigger_time, tz=self.timezone)
+            run_date = plan["run_date"]
 
             # 更新调度器与持久化数据
             # 先清理同目标历史任务，再写入新任务，确保同一目标仅一条生效
@@ -523,11 +838,7 @@ class SchedulerMixin:
             )
 
             session_payload = self.session_data.setdefault(normalized_session_id, {})
-            session_payload["next_trigger_time"] = next_trigger_time
-            session_payload["last_scheduled_at"] = scheduled_at
-            session_payload["last_schedule_min_interval_seconds"] = min_interval
-            session_payload["last_schedule_max_interval_seconds"] = max_interval
-            session_payload["last_schedule_random_interval_seconds"] = random_interval
+            self._write_schedule_plan_to_session(session_payload, plan)
             logger.info(
                 f"[主动消息] 已为 {self._get_session_log_str(normalized_session_id, session_config)} 安排下一次主动消息喵，时间：{run_date.strftime('%Y-%m-%d %H:%M:%S')} 喵。"
             )

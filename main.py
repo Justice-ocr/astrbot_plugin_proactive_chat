@@ -22,6 +22,7 @@ from .core.message_events import EventsMixin
 from .core.message_sender import SenderMixin
 from .core.notification_center import NotificationCenter
 from .core.plugin_lifecycle import LifecycleMixin
+from .core.public_api import PublicApiMixin
 from .core.session_config import ConfigMixin
 from .core.session_override_manager import SessionOverrideManager
 from .core.session_parser import SessionMixin
@@ -41,6 +42,7 @@ class ProactiveChatPlugin(
     EventsMixin,  # 私聊/群聊事件监听处理
     LifecycleMixin,  # initialize/terminate 生命周期管理
     ProactiveCoreMixin,  # 主动消息主流程编排
+    PublicApiMixin,  # 插件间通信的轻量公共接口
     star.Star,
 ):
     """
