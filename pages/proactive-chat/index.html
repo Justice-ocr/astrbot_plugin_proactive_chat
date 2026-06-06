@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="./css/style.css">
     <script>
         window.__PROACTIVE_AUTH_PENDING = true;
+        window.__PROACTIVE_AUTH_READY = false;
         window.__PROACTIVE_PAGE_MODE = true;
         window.__PROACTIVE_BOOT_STAGE = "bootstrap";
         window.showProactiveBootError = function (msg) {
@@ -123,6 +124,7 @@
         (function () {
             function proceed() {
                 window.__PROACTIVE_AUTH_PENDING = false;
+                window.__PROACTIVE_AUTH_READY = true;
                 window.dispatchEvent(new Event("auth-ready"));
 
                 setTimeout(function () {

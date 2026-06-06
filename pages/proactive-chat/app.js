@@ -5324,14 +5324,29 @@ function ThemedAppShell() {
   }, /*#__PURE__*/React.createElement(App, null));
 }
 function AuthWrapper() {
+  const isAuthReady = () => window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
   // ready 初值根据启动页鉴权状态决定，避免无鉴权场景下多等一次事件。
-  const [ready, setReady] = React.useState(() => !window.__PROACTIVE_AUTH_PENDING);
+  const [ready, setReady] = React.useState(isAuthReady);
   React.useEffect(() => {
     if (ready) return;
+    if (isAuthReady()) {
+      setReady(true);
+      return;
+    }
+
     // 等待入口页完成鉴权预检查后，再真正挂载 React 应用。
     const onReady = () => setReady(true);
     window.addEventListener('auth-ready', onReady);
-    return () => window.removeEventListener('auth-ready', onReady);
+    const fallbackTimer = window.setInterval(() => {
+      if (isAuthReady()) {
+        setReady(true);
+        window.clearInterval(fallbackTimer);
+      }
+    }, 50);
+    return () => {
+      window.removeEventListener('auth-ready', onReady);
+      window.clearInterval(fallbackTimer);
+    };
   }, [ready]);
   if (!ready) return null;
   return /*#__PURE__*/React.createElement(AppProvider, null, /*#__PURE__*/React.createElement(ThemedAppShell, null));
