@@ -1,6 +1,5 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
@@ -9,217 +8,15 @@
     <link rel="preload" href="./fonts/outfit.css" as="style">
     <link href="./fonts/outfit.css" rel="stylesheet">
     <link rel="stylesheet" href="./css/style.css">
-    <script>
-        window.__PROACTIVE_PAGE_MODE = true;
-        window.__PROACTIVE_AUTH_PENDING = true;
-        window.__PROACTIVE_AUTH_READY = false;
-        window.__PROACTIVE_APP_MOUNTED = false;
-        window.__PROACTIVE_REACT_RENDER_REQUESTED = false;
-        window.__PROACTIVE_WEBUI_INITIALIZED = false;
-        window.__PROACTIVE_BOOT_STAGE = "bootstrap";
-        window.__PROACTIVE_LAST_BOOT_ERROR = "";
-        window.__PROACTIVE_BOOT_ERRORS = [];
-        window.rememberProactiveBootError = function (msg) {
-            var message = String(msg || "");
-            if (!message) return;
-            window.__PROACTIVE_LAST_BOOT_ERROR = message;
-            window.__PROACTIVE_BOOT_ERRORS.push(message);
-            if (window.__PROACTIVE_BOOT_ERRORS.length > 8) {
-                window.__PROACTIVE_BOOT_ERRORS.shift();
-            }
-        };
-        window.escapeProactiveBootText = function (value) {
-            return String(value || "")
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#39;");
-        };
-        window.showProactiveBootError = function (msg) {
-            window.rememberProactiveBootError(msg);
-            console.error("[ProactivePage] " + msg);
-            var text = document.getElementById("boot-text");
-            if (text) {
-                text.textContent = msg;
-                text.style.color = "#B3261E";
-                return;
-            }
-            window.showProactiveRootFallback(msg);
-        };
-        window.showProactiveRootFallback = function (msg) {
-            var root = document.getElementById("root");
-            if (!root || document.querySelector(".app")) return;
-
-            var details = [
-                "stage=" + (window.__PROACTIVE_BOOT_STAGE || "unknown"),
-                "authReady=" + String(!!window.__PROACTIVE_AUTH_READY),
-                "authPending=" + String(!!window.__PROACTIVE_AUTH_PENDING),
-                "React=" + String(!!window.React),
-                "ReactDOM=" + String(!!window.ReactDOM),
-                "MaterialUI=" + String(!!window.MaterialUI),
-                "Bridge=" + String(!!window.AstrBotPluginPage)
-            ].join(" | ");
-            var recentError = window.__PROACTIVE_LAST_BOOT_ERROR
-                ? "lastError=" + window.__PROACTIVE_LAST_BOOT_ERROR
-                : "";
-            var rootText = root.innerText ? root.innerText.trim().slice(0, 240) : "";
-
-            root.innerHTML = [
-                '<div class="boot-loader" id="proactive-root-fallback">',
-                '<div class="boot-loader__logo"><img src="./logo.png" alt="logo"></div>',
-                '<div class="boot-loader__title">主动消息管理端</div>',
-                '<div class="boot-loader__subtitle" style="color:#B3261E">',
-                window.escapeProactiveBootText(msg || "页面渲染为空"),
-                '</div>',
-                '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">',
-                window.escapeProactiveBootText(details),
-                '</div>',
-                recentError ? '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">' + window.escapeProactiveBootText(recentError) + '</div>' : '',
-                rootText ? '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">rootText=' + window.escapeProactiveBootText(rootText) + '</div>' : '',
-                '</div>'
-            ].join("");
-        };
-        window.checkProactiveRootMounted = function (reason) {
-            window.setTimeout(function () {
-                var root = document.getElementById("root");
-                var hasApp = !!document.querySelector(".app");
-                var textLength = root && root.innerText ? root.innerText.trim().length : 0;
-                if (!hasApp || textLength < 8) {
-                    window.showProactiveRootFallback("页面渲染为空: " + (reason || "unknown"));
-                }
-            }, 1200);
-        };
-        window.hideProactiveBootSkeleton = function () {
-            var skeleton = document.getElementById("loading-skeleton");
-            if (!skeleton) return;
-            skeleton.classList.add("is-exiting");
-            setTimeout(function () {
-                if (skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
-            }, 300);
-        };
-        window.waitForProactiveAppMounted = function (reason) {
-            if (document.querySelector(".app") || window.__PROACTIVE_APP_MOUNTED) {
-                window.hideProactiveBootSkeleton();
-                return;
-            }
-
-            var settled = false;
-            var done = function () {
-                if (settled) return;
-                settled = true;
-                window.removeEventListener("proactive-app-mounted", done);
-                window.clearTimeout(timeout);
-                window.hideProactiveBootSkeleton();
-            };
-
-            var timeout = window.setTimeout(function () {
-                if (settled) return;
-                settled = true;
-                window.removeEventListener("proactive-app-mounted", done);
-                if (document.querySelector(".app")) {
-                    window.hideProactiveBootSkeleton();
-                    return;
-                }
-                var root = document.getElementById("root");
-                var rootText = root && root.innerText ? root.innerText.trim().slice(0, 240) : "";
-                var lastError = window.__PROACTIVE_LAST_BOOT_ERROR;
-                var detail = "";
-                if (lastError) detail += " | " + lastError;
-                if (rootText) detail += " | root: " + rootText;
-                window.showProactiveBootError("React 挂载超时: " + (reason || "unknown") + detail);
-            }, 6000);
-
-            window.addEventListener("proactive-app-mounted", done);
-        };
-        window.setProactiveBootStage = function (stage) {
-            window.__PROACTIVE_BOOT_STAGE = stage;
-            var text = document.getElementById("boot-text");
-            if (text) {
-                text.textContent = "正在加载 " + stage + "...";
-                text.style.color = "";
-            }
-        };
-        window.proactiveScriptLoadError = function (stage) {
-            window.showProactiveBootError("脚本加载失败: " + stage);
-        };
-        window.waitForProactiveBridge = function (timeoutMs) {
-            if (window.AstrBotPluginPage) {
-                return Promise.resolve(window.AstrBotPluginPage);
-            }
-
-            window.setProactiveBootStage("page bridge");
-            return new Promise(function (resolve) {
-                var startedAt = Date.now();
-                var timer = window.setInterval(function () {
-                    if (window.AstrBotPluginPage) {
-                        window.clearInterval(timer);
-                        resolve(window.AstrBotPluginPage);
-                        return;
-                    }
-                    if (Date.now() - startedAt >= timeoutMs) {
-                        window.clearInterval(timer);
-                        window.__PROACTIVE_PAGE_BRIDGE_MISSING = true;
-                        window.rememberProactiveBootError("AstrBot 插件页面桥接未注入");
-                        resolve(null);
-                    }
-                }, 50);
-            });
-        };
-        window.addEventListener("error", function (event) {
-            var stage = window.__PROACTIVE_BOOT_STAGE || "unknown";
-            var rawMessage = event && event.message ? event.message : "页面脚本加载失败";
-            var message = rawMessage === "Script error."
-                ? "脚本执行失败: " + stage
-                : "脚本执行失败: " + stage + " - " + rawMessage;
-            window.showProactiveBootError(message);
-        });
-        window.addEventListener("unhandledrejection", function (event) {
-            var stage = window.__PROACTIVE_BOOT_STAGE || "unknown";
-            var reason = event && event.reason;
-            var message = reason && reason.message ? reason.message : "页面初始化失败";
-            window.showProactiveBootError("异步初始化失败: " + stage + " - " + message);
-        });
-    </script>
-    <script>
-        window.setProactiveBootStage("vendor globals");
-        (function () {
-            var originalDefine = window.define;
-            var originalAmd = originalDefine && originalDefine.amd;
-
-            window.__PROACTIVE_RESTORE_AMD_DEFINE = function () {
-                try {
-                    if (originalDefine) {
-                        window.define = originalDefine;
-                        originalDefine.amd = originalAmd;
-                    } else {
-                        delete window.define;
-                    }
-                } catch (e) {
-                    window.define = originalDefine;
-                }
-            };
-
-            if (originalDefine && originalDefine.amd) {
-                try {
-                    window.define = undefined;
-                } catch (e) {
-                    try {
-                        originalDefine.amd = undefined;
-                    } catch (ignored) {}
-                }
-            }
-        })();
-    </script>
+    <link rel="stylesheet" href="./page-app.css">
 </head>
-
 <body>
     <div id="loading-skeleton" class="boot-loader">
         <div class="boot-loader__logo">
             <img src="./logo.png" alt="logo">
         </div>
         <div class="boot-loader__title">主动消息管理端</div>
-        <div class="boot-loader__subtitle" id="boot-text">正在初始化...</div>
+        <div class="boot-loader__subtitle" id="boot-text">正在初始化 Pages 控制台...</div>
         <div class="boot-loader__progress">
             <div class="boot-loader__progress-bar"></div>
         </div>
@@ -227,57 +24,6 @@
 
     <div id="root"></div>
 
-    <script>window.setProactiveBootStage("react");</script>
-    <script src="./vendor/react.production.min.js" onerror="window.proactiveScriptLoadError('react')"></script>
-    <script>window.setProactiveBootStage("react-dom");</script>
-    <script src="./vendor/react-dom.production.min.js" onerror="window.proactiveScriptLoadError('react-dom')"></script>
-    <script>window.setProactiveBootStage("emotion-react");</script>
-    <script src="./vendor/emotion-react.umd.min.js" onerror="window.proactiveScriptLoadError('emotion-react')"></script>
-    <script>window.setProactiveBootStage("emotion-styled");</script>
-    <script src="./vendor/emotion-styled.umd.min.js" onerror="window.proactiveScriptLoadError('emotion-styled')"></script>
-    <script>window.setProactiveBootStage("material-ui");</script>
-    <script src="./vendor/material-ui.production.min.js" onerror="window.proactiveScriptLoadError('material-ui')"></script>
-    <script>window.setProactiveBootStage("marked");</script>
-    <script src="./vendor/marked.min.js" onerror="window.proactiveScriptLoadError('marked')"></script>
-    <script>window.setProactiveBootStage("dompurify");</script>
-    <script src="./vendor/purify.min.js" onerror="window.proactiveScriptLoadError('dompurify')"></script>
-    <script>window.setProactiveBootStage("app");</script>
-    <script src="./app.js?v=20260606-pages-rerun" onerror="window.proactiveScriptLoadError('app')"></script>
-    <script>
-        if (typeof window.__PROACTIVE_RESTORE_AMD_DEFINE === "function") {
-            window.__PROACTIVE_RESTORE_AMD_DEFINE();
-        }
-        window.setProactiveBootStage("page bridge");
-    </script>
-    <script>
-        (function () {
-            function proceed() {
-                window.__PROACTIVE_AUTH_PENDING = false;
-                window.__PROACTIVE_AUTH_READY = true;
-                window.dispatchEvent(new Event("auth-ready"));
-                window.waitForProactiveAppMounted("after bridge ready");
-            }
-
-            window.waitForProactiveBridge(5000)
-                .then(function (bridge) {
-                    if (!bridge) return null;
-                    return typeof bridge.ready === "function" ? bridge.ready() : Promise.resolve();
-                })
-                .then(function () {
-                    var bridge = window.AstrBotPluginPage;
-                    if (bridge && window.AuthUtil) {
-                        window.AuthUtil.setToken("page-bridge");
-                    }
-                    proceed();
-                })
-                .catch(function (err) {
-                    window.rememberProactiveBootError(
-                        err && err.message ? err.message : "AstrBot 插件页面桥接初始化失败"
-                    );
-                    proceed();
-                });
-        })();
-    </script>
+    <script src="./page-app.js?v=20260606-native-pages"></script>
 </body>
-
 </html>
