@@ -4985,6 +4985,10 @@ function App() {
   const themeInitializedRef = React.useRef(false);
   const mainContentRef = React.useRef(null);
   const isRestoringRef = React.useRef(false);
+  React.useLayoutEffect(() => {
+    window.__PROACTIVE_APP_MOUNTED = true;
+    window.dispatchEvent(new Event('proactive-app-mounted'));
+  }, []);
   const getScrollKey = React.useCallback((view = state.currentView) => `astrbot_scroll_${view}`, [state.currentView]);
   const loadAll = React.useCallback(async () => {
     // 首次进入页面或手动全量刷新时，统一拉取首页所需的全部关键数据。
@@ -5403,7 +5407,15 @@ if (!window.__PROACTIVE_WEBUI_INITIALIZED) {
   window.__PROACTIVE_WEBUI_INITIALIZED = true;
   try {
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(/*#__PURE__*/React.createElement(RuntimeErrorBoundary, null, /*#__PURE__*/React.createElement(AuthWrapper, null)));
+    const appNode = /*#__PURE__*/React.createElement(RuntimeErrorBoundary, null, /*#__PURE__*/React.createElement(AuthWrapper, null));
+    window.__PROACTIVE_REACT_RENDER_REQUESTED = true;
+    if (typeof ReactDOM.flushSync === 'function') {
+      ReactDOM.flushSync(() => {
+        root.render(appNode);
+      });
+    } else {
+      root.render(appNode);
+    }
   } catch (e) {
     const rootEl = document.getElementById('root');
     if (rootEl) {

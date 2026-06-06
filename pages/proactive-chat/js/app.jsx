@@ -9,6 +9,11 @@ function App() {
     const mainContentRef = React.useRef(null);
     const isRestoringRef = React.useRef(false);
 
+    React.useLayoutEffect(() => {
+        window.__PROACTIVE_APP_MOUNTED = true;
+        window.dispatchEvent(new Event('proactive-app-mounted'));
+    }, []);
+
     const getScrollKey = React.useCallback(
         (view = state.currentView) => `astrbot_scroll_${view}`,
         [state.currentView]
@@ -416,11 +421,19 @@ if (!window.__PROACTIVE_WEBUI_INITIALIZED) {
     window.__PROACTIVE_WEBUI_INITIALIZED = true;
     try {
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(
+        const appNode = (
             <RuntimeErrorBoundary>
                 <AuthWrapper />
             </RuntimeErrorBoundary>
         );
+        window.__PROACTIVE_REACT_RENDER_REQUESTED = true;
+        if (typeof ReactDOM.flushSync === 'function') {
+            ReactDOM.flushSync(() => {
+                root.render(appNode);
+            });
+        } else {
+            root.render(appNode);
+        }
     } catch (e) {
         const rootEl = document.getElementById('root');
         if (rootEl) {

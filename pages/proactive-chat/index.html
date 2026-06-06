@@ -13,6 +13,7 @@
         window.__PROACTIVE_PAGE_MODE = true;
         window.__PROACTIVE_AUTH_PENDING = false;
         window.__PROACTIVE_AUTH_READY = true;
+        window.__PROACTIVE_APP_MOUNTED = false;
         window.__PROACTIVE_BOOT_STAGE = "bootstrap";
         window.showProactiveBootError = function (msg) {
             console.error("[ProactivePage] " + msg);
@@ -60,6 +61,42 @@
                     window.showProactiveRootFallback("页面渲染为空: " + (reason || "unknown"));
                 }
             }, 1200);
+        };
+        window.hideProactiveBootSkeleton = function () {
+            var skeleton = document.getElementById("loading-skeleton");
+            if (!skeleton) return;
+            skeleton.classList.add("is-exiting");
+            setTimeout(function () {
+                if (skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
+            }, 300);
+        };
+        window.waitForProactiveAppMounted = function (reason) {
+            if (document.querySelector(".app") || window.__PROACTIVE_APP_MOUNTED) {
+                window.hideProactiveBootSkeleton();
+                return;
+            }
+
+            var settled = false;
+            var done = function () {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener("proactive-app-mounted", done);
+                window.clearTimeout(timeout);
+                window.hideProactiveBootSkeleton();
+            };
+
+            var timeout = window.setTimeout(function () {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener("proactive-app-mounted", done);
+                if (document.querySelector(".app")) {
+                    window.hideProactiveBootSkeleton();
+                    return;
+                }
+                window.showProactiveBootError("React 挂载超时: " + (reason || "unknown"));
+            }, 6000);
+
+            window.addEventListener("proactive-app-mounted", done);
         };
         window.setProactiveBootStage = function (stage) {
             window.__PROACTIVE_BOOT_STAGE = stage;
@@ -165,19 +202,7 @@
                 window.__PROACTIVE_AUTH_PENDING = false;
                 window.__PROACTIVE_AUTH_READY = true;
                 window.dispatchEvent(new Event("auth-ready"));
-
-                setTimeout(function () {
-                    var skeleton = document.getElementById("loading-skeleton");
-                    if (skeleton) {
-                        skeleton.classList.add("is-exiting");
-                        setTimeout(function () {
-                            if (skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
-                            window.checkProactiveRootMounted("after bridge ready");
-                        }, 300);
-                    } else {
-                        window.checkProactiveRootMounted("after bridge ready");
-                    }
-                }, 500);
+                window.waitForProactiveAppMounted("after bridge ready");
             }
 
             var bridge = window.AstrBotPluginPage;
