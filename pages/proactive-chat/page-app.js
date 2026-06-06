@@ -454,11 +454,14 @@
         var groupCards = timerCards.group;
         var fallbackCards = timerCards.fallback;
         var allCards = groupCards.concat(autoCards).concat(fallbackCards);
+        var realJobsCount = Number(status.jobs_count || 0);
+        var visibleJobsCount = Math.max(realJobsCount, asArray(state.jobs).length);
+        var pendingJobsCount = Math.max(0, visibleJobsCount - realJobsCount);
         $("view-status").innerHTML = [
             '<div class="pc-grid metrics">',
             metric("插件状态", status.running ? "运行中" : "已停止", "版本 " + text(status.version, "...")),
             metric("运行时长", formatDuration(status.uptime_seconds), "启动后持续运行时间"),
-            metric("调度任务", text(status.jobs_count, "0"), status.scheduler_running ? "调度器运行中" : "调度器未启动"),
+            metric("调度任务", text(visibleJobsCount, "0"), (status.scheduler_running ? "调度器运行中" : "调度器未启动") + " · 已调度 " + realJobsCount + " / 待调度 " + pendingJobsCount),
             metric("会话数据", text(status.sessions_count, "0"), "自动触发 " + autoCards.length + " / 群沉默 " + groupCards.length),
             '</div>',
             '<div class="pc-grid two">',
@@ -467,7 +470,8 @@
             '<div class="pc-card"><div class="pc-card-title">调度概览</div>',
             '<div class="pc-list" style="margin-top:14px">',
             infoRow("调度器", status.scheduler_running ? "运行中" : "未启动"),
-            infoRow("当前任务总数", text(status.jobs_count, "0") + " 个"),
+            infoRow("当前任务总数", visibleJobsCount + " 个"),
+            pendingJobsCount ? infoRow("待调度会话", pendingJobsCount + " 个") : "",
             infoRow("自动触发计时器", autoCards.length + " 个"),
             infoRow("群沉默计时器", groupCards.length + " 个"),
             fallbackCards.length ? infoRow("会话触发倒计时", fallbackCards.length + " 个") : "",
@@ -484,13 +488,25 @@
         var autoCards = asArray(status.auto_trigger_cards);
         var groupCards = asArray(status.group_timer_cards);
         var seen = {};
+        var seenSessions = {};
+        var fallbackSessions = {};
         var fallback = [];
         var jobs = asArray(state.jobs);
         var sessions = asArray(state.sessions);
 
+        function cardSessionId(card) {
+            return String(card && (card.session_id || card.session || card.id) || "");
+        }
+
+        function cardHasTarget(card) {
+            return !!(card && (card.target_time || card.next_trigger_time || card.next_run_time || card.remaining_seconds !== null && card.remaining_seconds !== undefined));
+        }
+
         function mark(card) {
-            var key = String(card.timer_kind || "timer") + ":" + String(card.session_id || card.session || card.id || "");
+            var sessionId = cardSessionId(card);
+            var key = String(card.timer_kind || "timer") + ":" + sessionId;
             if (key !== "timer:") seen[key] = true;
+            if (sessionId && cardHasTarget(card)) seenSessions[sessionId] = true;
         }
         for (var a = 0; a < autoCards.length; a += 1) mark(autoCards[a] || {});
         for (var g = 0; g < groupCards.length; g += 1) mark(groupCards[g] || {});
@@ -502,7 +518,7 @@
             var target = timestampMs(targetRaw);
             if (!id || !target) return;
             var key = kind + ":" + id;
-            if (seen[key]) return;
+            if (seen[key] || seenSessions[id]) return;
             var remaining = Math.max(0, Math.ceil((target - Date.now()) / 1000));
             var windowSeconds = Number(source.last_schedule_random_interval_seconds || source.last_schedule_max_interval_seconds || 0);
             if (!windowSeconds && source.schedule_max_interval_minutes) windowSeconds = Number(source.schedule_max_interval_minutes) * 60;
@@ -530,6 +546,8 @@
                 max_unanswered_times: source.max_unanswered_times
             });
             seen[key] = true;
+            seenSessions[id] = true;
+            fallbackSessions[id] = true;
         }
 
         for (var j = 0; j < jobs.length; j += 1) pushFallback(jobs[j], "scheduled_job");
@@ -537,7 +555,11 @@
         fallback.sort(function (left, right) {
             return Number(left.remaining_seconds || 0) - Number(right.remaining_seconds || 0);
         });
-        return { auto: autoCards, group: groupCards, fallback: fallback };
+        function keepPrimaryCard(card) {
+            var id = cardSessionId(card);
+            return !id || !fallbackSessions[id] || cardHasTarget(card);
+        }
+        return { auto: autoCards.filter(keepPrimaryCard), group: groupCards.filter(keepPrimaryCard), fallback: fallback };
     }
 
     function timerStatusLabel(item) {
