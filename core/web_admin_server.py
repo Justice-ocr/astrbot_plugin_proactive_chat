@@ -299,14 +299,22 @@ class WebAdminServer:
         return await self._apply_config_payload(payload)
 
     async def _page_save_config(self):
-        result = await self._page_update_config()
+        payload = await self._read_astrbot_page_json()
+        logger.info(
+            f"[主动消息] Pages save_config 收到保存请求喵，字段: {sorted(payload.keys())}"
+        )
+        result = await self._apply_config_payload(payload)
         if not result.get("ok", False):
             return {
                 "success": False,
                 "error": result.get("error") or result.get("message") or "保存失败",
+                "received": True,
+                "received_keys": sorted(payload.keys()),
             }
         return {
             "success": True,
+            "received": True,
+            "received_keys": sorted(payload.keys()),
             "config": result.get("config") or self._build_config_payload(),
         }
 

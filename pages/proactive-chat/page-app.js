@@ -224,6 +224,13 @@
         return Promise.resolve(state.bridge.apiPost(endpoint, body || {})).then(normalizePayload);
     }
 
+    function directBridgePost(endpoint, body) {
+        if (!state.bridge || typeof state.bridge.apiPost !== "function") {
+            return Promise.reject(new Error("AstrBot Pages bridge 未注入，请从 AstrBot WebUI 的插件页面重新打开。"));
+        }
+        return Promise.resolve(state.bridge.apiPost(endpoint, body || {})).then(normalizePayload);
+    }
+
     function route(endpoint) {
         return endpoint;
     }
@@ -1134,9 +1141,12 @@
                 notification_settings: cleaned.notification_settings
             };
             setBusy("configSave", true);
-            apiPost(route("save_config"), payload).then(function (data) {
+            directBridgePost("save_config", payload).then(function (data) {
+                if (!data || data.received !== true) {
+                    throw new Error("保存请求没有命中新后端 save_config 接口，请重载插件后再试");
+                }
                 state.config = data && data.config ? data.config : cleaned;
-                setFeedback("success", "全局配置已保存。");
+                setFeedback("success", "全局配置已保存，后端已确认。");
                 setError("");
                 render();
             }).catch(function (err) {
