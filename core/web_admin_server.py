@@ -35,6 +35,11 @@ except ImportError:
         "[主动消息] FastAPI 未安装喵，Web 管理端不可用喵。请安装: pip install fastapi uvicorn"
     )
 
+try:
+    from quart import request as quart_request
+except ImportError:
+    quart_request = None
+
 
 def _patch_starlette_router_startup_kwargs() -> None:
     """兼容 FastAPI 与较新 Starlette Router 的启动参数签名差异。"""
@@ -139,7 +144,7 @@ class WebAdminServer:
                 )
 
     def register_astrbot_page_api(self) -> None:
-        """向 AstrBot WebUI 插件 Page 暴露轻量聚合接口。"""
+        """向 AstrBot WebUI 插件 Page 暴露完整管理端接口。"""
         context = getattr(self.plugin, "context", None)
         register = getattr(context, "register_web_api", None)
         if not callable(register):
@@ -148,42 +153,174 @@ class WebAdminServer:
             )
             return
 
-        async def dashboard_payload(*_args, **_kwargs):
-            return await self.build_astrbot_page_payload()
-
-        # AstrBot 不同版本的 register_web_api 签名可能略有差异，按常见形态逐个尝试。
-        attempts = (
-            lambda: register(
-                self.ASTRBOT_PAGE_API_PATH,
-                dashboard_payload,
-                ["GET"],
-                "Proactive chat dashboard",
+        routes = (
+            ("dashboard", self.build_astrbot_page_payload, ["GET"]),
+            ("embedded-dashboard", self.build_astrbot_page_payload, ["GET"]),
+            ("auth-info", self._page_auth_info, ["GET"]),
+            ("login", self._page_login, ["POST"]),
+            ("status", self._page_status, ["GET"]),
+            ("config", self._page_config, ["GET", "POST"]),
+            ("config-schema", self._page_get_config_schema, ["GET"]),
+            ("session-config/sessions", self._page_list_session_configs, ["GET"]),
+            ("session-config/<path:umo>", self._page_session_config, ["GET", "POST"]),
+            (
+                "session-config-delete/<path:umo>",
+                self._page_reset_session_config,
+                ["POST"],
             ),
-            lambda: register(
-                self.ASTRBOT_PAGE_API_PATH, dashboard_payload, methods=["GET"]
+            ("jobs", self._page_list_jobs, ["GET"]),
+            ("jobs/<path:umo>/reschedule", self._page_reschedule_job, ["POST"]),
+            ("jobs/<path:umo>/trigger", self._page_trigger_job, ["POST"]),
+            ("jobs-cancel/<path:umo>", self._page_cancel_job, ["POST"]),
+            ("notifications", self._page_get_notifications, ["GET"]),
+            ("notifications/read", self._page_mark_notification_read, ["POST"]),
+            (
+                "notifications/read-all",
+                self._page_mark_all_notifications_read,
+                ["POST"],
             ),
-            lambda: register("GET", self.ASTRBOT_PAGE_API_PATH, dashboard_payload),
-            lambda: register(self.ASTRBOT_PAGE_API_PATH, dashboard_payload),
+            ("notifications/refresh", self._page_refresh_notifications, ["POST"]),
+            ("markdown-files", self._page_list_markdown_files, ["GET"]),
+            ("markdown-files/<path:file_path>", self._page_get_markdown_file, ["GET"]),
+            ("open-directory", self._page_open_directory, ["POST"]),
         )
+
+        registered_count = 0
+        for endpoint, handler, methods in routes:
+            path = f"/{self.ASTRBOT_PLUGIN_NAME}/{endpoint}"
+            if self._register_astrbot_page_route(register, path, handler, methods):
+                registered_count += 1
+
+        logger.info(
+            f"[主动消息] 已注册 AstrBot 插件卡片管理端接口 {registered_count}/{len(routes)} 个喵。"
+        )
+
+    def _register_astrbot_page_route(
+        self,
+        register,
+        path: str,
+        handler,
+        methods: list[str],
+    ) -> bool:
+        """兼容不同 AstrBot 版本的 register_web_api 签名。"""
+        attempts = (
+            lambda: register(path, handler, methods, "Proactive chat WebUI API"),
+            lambda: register(path, handler, methods=methods),
+            lambda: register(methods[0], path, handler),
+            lambda: register(path, handler),
+        )
+
         last_error: Exception | None = None
         for attempt in attempts:
             try:
                 attempt()
-                logger.info(
-                    f"[主动消息] 已注册 AstrBot 插件卡片接口喵: {self.ASTRBOT_PAGE_API_PATH}"
-                )
-                return
+                return True
             except TypeError as e:
                 last_error = e
                 continue
             except Exception as e:
-                logger.warning(f"[主动消息] 注册 AstrBot 插件卡片接口失败喵: {e}")
-                return
+                logger.warning(
+                    f"[主动消息] 注册 AstrBot 插件卡片接口失败喵: {path}: {e}"
+                )
+                return False
 
         if last_error:
             logger.debug(
-                f"[主动消息] AstrBot 插件卡片接口签名不兼容，已跳过注册喵: {last_error}"
+                f"[主动消息] AstrBot 插件卡片接口签名不兼容，已跳过 {path} 喵: {last_error}"
             )
+        return False
+
+    async def _read_astrbot_page_json(self) -> dict[str, Any]:
+        if quart_request is None:
+            return {}
+
+        try:
+            payload = await quart_request.get_json(silent=True)
+        except Exception:
+            payload = None
+        return payload if isinstance(payload, dict) else {}
+
+    def _get_astrbot_page_method(self) -> str:
+        if quart_request is None:
+            return "GET"
+        return str(getattr(quart_request, "method", "GET") or "GET").upper()
+
+    async def _page_auth_info(self):
+        return {"auth_required": False}
+
+    async def _page_login(self):
+        return {"token": "page-bridge", "auth_required": False}
+
+    async def _page_status(self):
+        return self._build_status_payload()
+
+    async def _page_get_config(self):
+        return self._build_config_payload()
+
+    async def _page_update_config(self):
+        payload = await self._read_astrbot_page_json()
+        return await self._apply_config_payload(payload)
+
+    async def _page_config(self):
+        if self._get_astrbot_page_method() == "POST":
+            return await self._page_update_config()
+        return await self._page_get_config()
+
+    async def _page_get_config_schema(self):
+        return await self._load_config_schema_payload()
+
+    async def _page_list_session_configs(self):
+        return {"sessions": self._list_session_config_payloads()}
+
+    async def _page_get_session_config(self, umo: str):
+        return self._build_session_config_payload(umo)
+
+    async def _page_update_session_config(self, umo: str):
+        payload = await self._read_astrbot_page_json()
+        return await self._apply_session_config_payload(umo, payload)
+
+    async def _page_session_config(self, umo: str):
+        if self._get_astrbot_page_method() == "POST":
+            return await self._page_update_session_config(umo)
+        return await self._page_get_session_config(umo)
+
+    async def _page_reset_session_config(self, umo: str):
+        return await self._reset_session_config_payload(umo)
+
+    async def _page_list_jobs(self):
+        return {"jobs": self._collect_jobs()}
+
+    async def _page_reschedule_job(self, umo: str):
+        return await self._reschedule_job_payload(umo)
+
+    async def _page_trigger_job(self, umo: str):
+        return await self._trigger_job_payload(umo)
+
+    async def _page_cancel_job(self, umo: str):
+        return await self._cancel_job_payload(umo)
+
+    async def _page_get_notifications(self):
+        return await self._build_notification_payload()
+
+    async def _page_mark_notification_read(self):
+        payload = await self._read_astrbot_page_json()
+        return await self._mark_notification_read_payload(payload)
+
+    async def _page_mark_all_notifications_read(self):
+        return await self._mark_all_notifications_read_payload()
+
+    async def _page_refresh_notifications(self):
+        return await self._refresh_notifications_payload()
+
+    async def _page_list_markdown_files(self):
+        return {"items": self._list_markdown_documents()}
+
+    async def _page_get_markdown_file(self, file_path: str):
+        return await self._build_markdown_file_payload(file_path)
+
+    async def _page_open_directory(self):
+        payload = await self._read_astrbot_page_json()
+        return await self._open_directory_payload(payload)
 
     def _setup_app(self) -> None:
         _patch_starlette_router_startup_kwargs()
@@ -847,6 +984,318 @@ class WebAdminServer:
             self._tokens.pop(token, None)
             return False
         return True
+
+    def _build_config_payload(self) -> dict[str, Any]:
+        web_admin = {
+            k: v for k, v in self.config.get("web_admin", {}).items() if k != "password"
+        }
+        return {
+            "friend_settings": dict(self.config.get("friend_settings", {})),
+            "group_settings": dict(self.config.get("group_settings", {})),
+            "web_admin": web_admin,
+            "notification_settings": dict(self.config.get("notification_settings", {})),
+        }
+
+    async def _apply_config_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        allowed_keys = {"friend_settings", "group_settings", "web_admin"}
+        for key in allowed_keys:
+            if key not in payload:
+                continue
+            if key == "web_admin":
+                old = dict(self.config.get("web_admin", {}))
+                old.update(payload.get("web_admin", {}))
+                if "password" in payload.get("web_admin", {}):
+                    old["password"] = payload["web_admin"]["password"]
+                self.config["web_admin"] = old
+            else:
+                self.config[key] = payload[key]
+
+        self._save_plugin_config()
+        await self._broadcast_update("config")
+        return {"ok": True}
+
+    async def _load_config_schema_payload(self) -> dict[str, Any]:
+        schema_path = Path(__file__).resolve().parent.parent / "_conf_schema.json"
+        if schema_path.exists():
+            try:
+                schema_text = await asyncio.to_thread(
+                    schema_path.read_text, encoding="utf-8"
+                )
+                return json.loads(schema_text)
+            except Exception as e:
+                logger.error(f"[主动消息] 读取 Schema 失败喵: {e}")
+        return {}
+
+    def _list_session_config_payloads(self) -> list[dict[str, Any]]:
+        result = []
+        for session in self._list_known_sessions():
+            override = self.plugin.session_override_manager.get_override(session)
+            effective = self.plugin._get_session_config(session)
+            session_name = self.plugin._get_session_name(session, effective)
+            result.append(
+                {
+                    "session": session,
+                    "session_name": session_name,
+                    "session_display_name": self.plugin._get_session_display_name(
+                        session, effective
+                    ),
+                    "has_override": bool(override),
+                    "override_keys": list(override.keys()),
+                    "enabled": bool(effective and effective.get("enable", False)),
+                    "next_trigger_time": self.plugin.session_data.get(session, {}).get(
+                        "next_trigger_time"
+                    ),
+                    "unanswered_count": self.plugin.session_data.get(session, {}).get(
+                        "unanswered_count", 0
+                    ),
+                }
+            )
+        return result
+
+    def _build_session_config_payload(self, umo: str) -> dict[str, Any]:
+        normalized = self.plugin._normalize_session_id(umo)
+        base = self.plugin._get_base_session_config(normalized)
+        return {
+            "session": normalized,
+            "base": base,
+            "override": self.plugin.session_override_manager.get_override(normalized),
+            "effective": self.plugin._get_session_config(normalized),
+        }
+
+    async def _apply_session_config_payload(
+        self, umo: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        normalized = self.plugin._normalize_session_id(umo)
+        mode = payload.get("mode", "effective")
+
+        if mode == "override":
+            override = payload.get("override", {})
+            if not isinstance(override, dict):
+                return {"ok": False, "error": "override 必须是对象"}
+            await self.plugin.session_override_manager.set_override(
+                normalized, override
+            )
+        else:
+            effective = payload.get("effective", {})
+            if not isinstance(effective, dict):
+                return {"ok": False, "error": "effective 必须是对象"}
+            base = self.plugin._get_base_session_config(normalized)
+            if not base:
+                return {
+                    "ok": False,
+                    "error": "会话未命中 friend/group 全局配置，无法保存 effective",
+                }
+            await self.plugin.session_override_manager.update_session_from_effective(
+                normalized,
+                base,
+                effective,
+            )
+
+        await self._broadcast_update("session-config")
+        return {
+            "ok": True,
+            "session": normalized,
+            "override": self.plugin.session_override_manager.get_override(normalized),
+            "effective": self.plugin._get_session_config(normalized),
+        }
+
+    async def _reset_session_config_payload(self, umo: str) -> dict[str, Any]:
+        normalized = self.plugin._normalize_session_id(umo)
+        await self.plugin.session_override_manager.delete_override(normalized)
+        await self._broadcast_update("session-config")
+        return {
+            "ok": True,
+            "session": normalized,
+            "override": {},
+            "effective": self.plugin._get_session_config(normalized),
+        }
+
+    async def _reschedule_job_payload(self, umo: str) -> dict[str, Any]:
+        normalized = self.plugin._normalize_session_id(umo)
+        session_config = self.plugin._get_session_config(normalized)
+        if not session_config or not session_config.get("enable", False):
+            return {
+                "ok": False,
+                "session": normalized,
+                "error": "会话未启用或配置不存在，无法重新调度",
+            }
+
+        await self.plugin._schedule_next_chat_and_save(normalized, reset_counter=False)
+        await self._broadcast_update("jobs")
+        return {
+            "ok": True,
+            "session": normalized,
+            "message": "已重新调度下一次主动消息时间",
+        }
+
+    async def _trigger_job_payload(self, umo: str) -> dict[str, Any]:
+        normalized = self.plugin._normalize_session_id(umo)
+        if normalized in self.plugin.manual_trigger_sessions:
+            return {
+                "ok": False,
+                "session": normalized,
+                "in_progress": True,
+                "message": "该任务正在立即触发中，请等待当前执行完成",
+            }
+
+        self.plugin.manual_trigger_sessions.add(normalized)
+        asyncio.create_task(self.plugin.check_and_chat(normalized))
+        await self._broadcast_update("jobs")
+        return {
+            "ok": True,
+            "session": normalized,
+            "in_progress": True,
+            "message": "已开始立即触发，正在等待 LLM 完成回复",
+        }
+
+    async def _cancel_job_payload(self, umo: str) -> dict[str, Any]:
+        normalized = self.plugin._normalize_session_id(umo)
+        removed = False
+        try:
+            self.plugin.scheduler.remove_job(normalized)
+            removed = True
+        except Exception:
+            pass
+
+        async with self.plugin.data_lock:
+            if normalized in self.plugin.session_data:
+                self.plugin.session_data[normalized].pop("next_trigger_time", None)
+                await self.plugin._save_data_internal()
+
+        await self._broadcast_update("jobs")
+        return {"ok": True, "session": normalized, "removed": removed}
+
+    async def _mark_notification_read_payload(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not getattr(self.plugin, "notification_center", None):
+            return {"ok": False, "error": "通知系统不可用"}
+
+        notification_id = payload.get("id")
+        if notification_id is None:
+            return {"ok": False, "error": "缺少必填字段 id"}
+        try:
+            normalized_id = int(notification_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "id 必须是数字"}
+
+        result = await self.plugin.notification_center.mark_as_read(normalized_id)
+        await self._broadcast_update("notifications")
+        return result
+
+    async def _mark_all_notifications_read_payload(self) -> dict[str, Any]:
+        if not getattr(self.plugin, "notification_center", None):
+            return {"ok": False, "error": "通知系统不可用"}
+        result = await self.plugin.notification_center.mark_all_as_read()
+        await self._broadcast_update("notifications")
+        return result
+
+    async def _refresh_notifications_payload(self) -> dict[str, Any]:
+        if not getattr(self.plugin, "notification_center", None):
+            return {"ok": False, "error": "通知系统不可用"}
+        changed = await self.plugin.notification_center.refresh()
+        await self._broadcast_update("notifications")
+        payload = await self.plugin.notification_center.get_payload()
+        return {
+            "ok": True,
+            "changed": changed,
+            "items": payload.get("items", []),
+            "meta": payload.get("meta", {}),
+        }
+
+    async def _build_markdown_file_payload(self, file_path: str) -> dict[str, Any]:
+        resolved = self._resolve_markdown_document(file_path)
+        if not resolved:
+            return {"ok": False, "error": "文档不存在或不允许访问"}
+
+        try:
+            content = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
+        except UnicodeDecodeError:
+            return {
+                "ok": False,
+                "error": "文档编码不受支持，仅支持 UTF-8 Markdown 文件",
+            }
+        except Exception as e:
+            logger.error(f"[主动消息] 读取 Markdown 文档失败喵: {e}")
+            return {"ok": False, "error": "读取文档失败", "message": str(e)}
+
+        return {
+            "path": self._to_workspace_relative_path(resolved),
+            "title": resolved.stem,
+            "content": content,
+            "content_format": "markdown",
+        }
+
+    async def _open_directory_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        target = str(payload.get("path", "plugin")).strip().lower()
+        directory = (
+            Path(self.plugin.data_dir)
+            if target == "data"
+            else Path(__file__).resolve().parent.parent
+        )
+
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            dir_str = str(directory)
+
+            if _is_running_in_docker():
+                return {
+                    "ok": False,
+                    "error": "Docker 环境下不支持在宿主机直接打开目录，请手动查看挂载路径",
+                    "path": dir_str,
+                }
+
+            if os.name == "nt":
+                await asyncio.to_thread(os.startfile, dir_str)
+            elif sys.platform == "darwin":
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["open", dir_str],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or "未知错误").strip()
+                    return {
+                        "ok": False,
+                        "error": "打开目录失败（macOS）",
+                        "message": f"open 命令执行失败: {detail}",
+                        "path": dir_str,
+                    }
+            else:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["xdg-open", dir_str],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or "未知错误").strip()
+                    return {
+                        "ok": False,
+                        "error": "打开目录失败（Linux）",
+                        "message": (
+                            "xdg-open 执行失败，服务器可能缺少桌面环境或未安装 xdg-open: "
+                            f"{detail}"
+                        ),
+                        "path": dir_str,
+                    }
+
+            return {
+                "ok": True,
+                "path": dir_str,
+                "message": "已在系统文件管理器中打开目录",
+            }
+        except Exception as e:
+            logger.error(f"[主动消息] 打开目录失败喵: {e}")
+            return {
+                "ok": False,
+                "error": "打开目录失败",
+                "message": str(e),
+                "path": str(directory),
+            }
 
     def _safe_timer_meta(self, timer: Any, now: float) -> dict[str, float | int | None]:
         # 某些会话可能当前没有有效 timer，此时直接返回空元信息。
