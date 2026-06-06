@@ -921,7 +921,7 @@
         render();
     }
 
-    function updateConfigFromControl(node, shouldRender) {
+    function updateConfigFromControl(node, shouldRender, suppressRender) {
         if (!state.config || typeof state.config !== "object") state.config = {};
         var path = node.getAttribute("data-config-path");
         var type = node.getAttribute("data-config-type") || "string";
@@ -946,7 +946,16 @@
             var pair = document.querySelector('input[type="number"][data-config-path="' + path.replace(/"/g, '\\"') + '"]');
             if (pair) pair.value = node.value;
         }
-        if (shouldRender || type === "select") render();
+        if (!suppressRender && (shouldRender || type === "select")) render();
+    }
+
+    function syncConfigFromVisibleControls() {
+        if (!state.config || typeof state.config !== "object") state.config = {};
+        var root = $("view-config") || document;
+        var nodes = root.querySelectorAll("[data-config-path]");
+        for (var i = 0; i < nodes.length; i += 1) {
+            updateConfigFromControl(nodes[i], false, true);
+        }
     }
 
     function cleanConfig(obj) {
@@ -1111,6 +1120,7 @@
 
     function saveConfig() {
         try {
+            syncConfigFromVisibleControls();
             var cleaned = cleanConfig(state.config || {});
             var payload = {
                 friend_settings: cleaned.friend_settings,
@@ -1162,6 +1172,7 @@
             return;
         }
         try {
+            syncConfigFromVisibleControls();
             var payload = { mode: "effective", effective: cleanConfig(state.config || {}) };
             apiPost(route("session-config/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
                 state.sessionDetail = data || {};
