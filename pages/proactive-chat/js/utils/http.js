@@ -116,6 +116,10 @@
             return bridgeRequest(url, options || {});
         }
 
+        if (window.__PROACTIVE_PAGE_MODE && String(url || '').startsWith('/api/')) {
+            throw new Error('AstrBot Pages bridge 未注入，请从 AstrBot WebUI 的插件页面重新打开。');
+        }
+
         // 复制 options，避免上层传入对象在内部被意外修改。
         const opts = Object.assign({}, options || {});
         // 在统一入口补齐认证头与默认内容类型，减少各业务文件重复代码。

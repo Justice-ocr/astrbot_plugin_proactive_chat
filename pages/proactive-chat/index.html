@@ -143,24 +143,27 @@
         window.proactiveScriptLoadError = function (stage) {
             window.showProactiveBootError("脚本加载失败: " + stage);
         };
-        window.ensureProactiveBridgeSdk = function () {
+        window.waitForProactiveBridge = function (timeoutMs) {
             if (window.AstrBotPluginPage) {
-                return Promise.resolve();
+                return Promise.resolve(window.AstrBotPluginPage);
             }
 
-            return new Promise(function (resolve, reject) {
-                window.setProactiveBootStage("bridge-sdk");
-                var script = document.createElement("script");
-                script.src = "/api/plugin/page/bridge-sdk.js";
-                script.onload = function () {
-                    resolve();
-                };
-                script.onerror = function () {
-                    var error = new Error("脚本加载失败: bridge-sdk");
-                    window.proactiveScriptLoadError("bridge-sdk");
-                    reject(error);
-                };
-                document.head.appendChild(script);
+            window.setProactiveBootStage("page bridge");
+            return new Promise(function (resolve) {
+                var startedAt = Date.now();
+                var timer = window.setInterval(function () {
+                    if (window.AstrBotPluginPage) {
+                        window.clearInterval(timer);
+                        resolve(window.AstrBotPluginPage);
+                        return;
+                    }
+                    if (Date.now() - startedAt >= timeoutMs) {
+                        window.clearInterval(timer);
+                        window.__PROACTIVE_PAGE_BRIDGE_MISSING = true;
+                        window.rememberProactiveBootError("AstrBot 插件页面桥接未注入");
+                        resolve(null);
+                    }
+                }, 50);
             });
         };
         window.addEventListener("error", function (event) {
@@ -255,27 +258,23 @@
                 window.waitForProactiveAppMounted("after bridge ready");
             }
 
-            window.ensureProactiveBridgeSdk()
-                .then(function () {
-                    window.setProactiveBootStage("page bridge");
-                    var bridge = window.AstrBotPluginPage;
-                    if (!bridge) {
-                        window.showProactiveBootError("AstrBot 插件页面桥接未就绪");
-                        return Promise.reject(new Error("AstrBot 插件页面桥接未就绪"));
-                    }
-
+            window.waitForProactiveBridge(5000)
+                .then(function (bridge) {
+                    if (!bridge) return null;
                     return typeof bridge.ready === "function" ? bridge.ready() : Promise.resolve();
                 })
                 .then(function () {
-                    if (window.AuthUtil) {
+                    var bridge = window.AstrBotPluginPage;
+                    if (bridge && window.AuthUtil) {
                         window.AuthUtil.setToken("page-bridge");
                     }
                     proceed();
                 })
                 .catch(function (err) {
-                    window.showProactiveBootError(
+                    window.rememberProactiveBootError(
                         err && err.message ? err.message : "AstrBot 插件页面桥接初始化失败"
                     );
+                    proceed();
                 });
         })();
     </script>
