@@ -1129,11 +1129,10 @@
                 notification_settings: cleaned.notification_settings
             };
             apiPost(route("config"), payload).then(function (data) {
-                state.config = data && data.config ? data.config : cleaned;
+                state.config = cleaned;
                 setFeedback("success", "全局配置已保存。");
                 setError("");
                 render();
-                if (!data || !data.config) loadConfig();
             }).catch(function (err) {
                 setFeedback("error", err.message || "配置保存失败");
                 setError(err.message);
@@ -1176,7 +1175,8 @@
             var payload = { mode: "effective", effective: cleanConfig(state.config || {}) };
             apiPost(route("session-config/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
                 state.sessionDetail = data || {};
-                state.config = state.sessionDetail.effective || payload.effective;
+                state.sessionDetail.effective = payload.effective;
+                state.config = payload.effective;
                 setFeedback("success", "会话差异配置已保存。");
                 setError("");
                 render();
