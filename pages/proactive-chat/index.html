@@ -10,9 +10,9 @@
     <link href="./fonts/outfit.css" rel="stylesheet">
     <link rel="stylesheet" href="./css/style.css">
     <script>
-        window.__PROACTIVE_AUTH_PENDING = true;
-        window.__PROACTIVE_AUTH_READY = false;
         window.__PROACTIVE_PAGE_MODE = true;
+        window.__PROACTIVE_AUTH_PENDING = false;
+        window.__PROACTIVE_AUTH_READY = true;
         window.__PROACTIVE_BOOT_STAGE = "bootstrap";
         window.showProactiveBootError = function (msg) {
             console.error("[ProactivePage] " + msg);
@@ -20,7 +20,46 @@
             if (text) {
                 text.textContent = msg;
                 text.style.color = "#B3261E";
+                return;
             }
+            window.showProactiveRootFallback(msg);
+        };
+        window.showProactiveRootFallback = function (msg) {
+            var root = document.getElementById("root");
+            if (!root || document.querySelector(".app")) return;
+
+            var details = [
+                "stage=" + (window.__PROACTIVE_BOOT_STAGE || "unknown"),
+                "authReady=" + String(!!window.__PROACTIVE_AUTH_READY),
+                "authPending=" + String(!!window.__PROACTIVE_AUTH_PENDING),
+                "React=" + String(!!window.React),
+                "ReactDOM=" + String(!!window.ReactDOM),
+                "MaterialUI=" + String(!!window.MaterialUI),
+                "Bridge=" + String(!!window.AstrBotPluginPage)
+            ].join(" | ");
+
+            root.innerHTML = [
+                '<div class="boot-loader" id="proactive-root-fallback">',
+                '<div class="boot-loader__logo"><img src="./logo.png" alt="logo"></div>',
+                '<div class="boot-loader__title">主动消息管理端</div>',
+                '<div class="boot-loader__subtitle" style="color:#B3261E">',
+                String(msg || "页面渲染为空"),
+                '</div>',
+                '<div class="boot-loader__subtitle" style="max-width:760px;font-size:13px;line-height:1.7">',
+                details,
+                '</div>',
+                '</div>'
+            ].join("");
+        };
+        window.checkProactiveRootMounted = function (reason) {
+            window.setTimeout(function () {
+                var root = document.getElementById("root");
+                var hasApp = !!document.querySelector(".app");
+                var textLength = root && root.innerText ? root.innerText.trim().length : 0;
+                if (!hasApp || textLength < 8) {
+                    window.showProactiveRootFallback("页面渲染为空: " + (reason || "unknown"));
+                }
+            }, 1200);
         };
         window.setProactiveBootStage = function (stage) {
             window.__PROACTIVE_BOOT_STAGE = stage;
@@ -133,7 +172,10 @@
                         skeleton.classList.add("is-exiting");
                         setTimeout(function () {
                             if (skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
+                            window.checkProactiveRootMounted("after bridge ready");
                         }, 300);
+                    } else {
+                        window.checkProactiveRootMounted("after bridge ready");
                     }
                 }, 500);
             }

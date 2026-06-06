@@ -67,17 +67,40 @@
         }
 
         if (mapped.method === 'GET') {
-            const payload = await bridge.apiGet(mapped.endpoint);
-            if (payload && payload.error) {
-                throw new Error(payload.error);
-            }
-            return payload;
+            return normalizeBridgePayload(await bridge.apiGet(mapped.endpoint));
         }
 
-        const payload = await bridge.apiPost(mapped.endpoint, parseBody(options && options.body));
-        if (payload && payload.error) {
-            throw new Error(payload.error);
+        return normalizeBridgePayload(await bridge.apiPost(mapped.endpoint, parseBody(options && options.body)));
+    }
+
+    function normalizeBridgePayload(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return payload || {};
         }
+
+        if (payload.error) {
+            throw new Error(
+                typeof payload.error === 'string'
+                    ? payload.error
+                    : payload.error.message || '请求失败'
+            );
+        }
+
+        if (payload.ok === false || payload.success === false) {
+            throw new Error(payload.message || '请求失败');
+        }
+
+        if (typeof payload.code === 'number' && payload.code !== 0) {
+            throw new Error(payload.message || payload.msg || `请求失败 (${payload.code})`);
+        }
+
+        if (
+            (payload.ok === true || payload.success === true || payload.code === 0)
+            && Object.prototype.hasOwnProperty.call(payload, 'data')
+        ) {
+            return payload.data || {};
+        }
+
         return payload;
     }
 

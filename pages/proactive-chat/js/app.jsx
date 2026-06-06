@@ -341,7 +341,7 @@ function ThemedAppShell() {
 }
 
 function AuthWrapper() {
-    const isAuthReady = () => window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
+    const isAuthReady = () => window.__PROACTIVE_PAGE_MODE || window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
     // ready 初值根据启动页鉴权状态决定，避免无鉴权场景下多等一次事件。
     const [ready, setReady] = React.useState(isAuthReady);
 
@@ -377,9 +377,61 @@ function AuthWrapper() {
     );
 }
 
+class RuntimeErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { error: null };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { error };
+    }
+
+    componentDidCatch(error, info) {
+        console.error('[ProactivePage] React render failed', error, info);
+    }
+
+    render() {
+        if (this.state.error) {
+            const message = this.state.error?.message || '页面渲染失败';
+            return (
+                <div className="boot-loader">
+                    <div className="boot-loader__logo">
+                        <img src="./logo.png" alt="logo" />
+                    </div>
+                    <div className="boot-loader__title">主动消息管理端</div>
+                    <div className="boot-loader__subtitle" style={{ color: '#B3261E' }}>
+                        页面渲染失败: {message}
+                    </div>
+                </div>
+            );
+        }
+
+        return this.props.children;
+    }
+}
+
 if (!window.__PROACTIVE_WEBUI_INITIALIZED) {
     // 防止脚本重复执行时反复 createRoot，避免 React 在同一节点重复挂载。
     window.__PROACTIVE_WEBUI_INITIALIZED = true;
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<AuthWrapper />);
+    try {
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+            <RuntimeErrorBoundary>
+                <AuthWrapper />
+            </RuntimeErrorBoundary>
+        );
+    } catch (e) {
+        const rootEl = document.getElementById('root');
+        if (rootEl) {
+            rootEl.innerHTML = `
+                <div class="boot-loader">
+                    <div class="boot-loader__logo"><img src="./logo.png" alt="logo"></div>
+                    <div class="boot-loader__title">主动消息管理端</div>
+                    <div class="boot-loader__subtitle" style="color:#B3261E">页面挂载失败: ${String(e && e.message ? e.message : e)}</div>
+                </div>
+            `;
+        }
+        throw e;
+    }
 }

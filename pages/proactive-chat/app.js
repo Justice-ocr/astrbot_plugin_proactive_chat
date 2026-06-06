@@ -109,15 +109,25 @@
       throw new Error('无效的插件接口路径');
     }
     if (mapped.method === 'GET') {
-      const payload = await bridge.apiGet(mapped.endpoint);
-      if (payload && payload.error) {
-        throw new Error(payload.error);
-      }
-      return payload;
+      return normalizeBridgePayload(await bridge.apiGet(mapped.endpoint));
     }
-    const payload = await bridge.apiPost(mapped.endpoint, parseBody(options && options.body));
-    if (payload && payload.error) {
-      throw new Error(payload.error);
+    return normalizeBridgePayload(await bridge.apiPost(mapped.endpoint, parseBody(options && options.body)));
+  }
+  function normalizeBridgePayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return payload || {};
+    }
+    if (payload.error) {
+      throw new Error(typeof payload.error === 'string' ? payload.error : payload.error.message || '请求失败');
+    }
+    if (payload.ok === false || payload.success === false) {
+      throw new Error(payload.message || '请求失败');
+    }
+    if (typeof payload.code === 'number' && payload.code !== 0) {
+      throw new Error(payload.message || payload.msg || `请求失败 (${payload.code})`);
+    }
+    if ((payload.ok === true || payload.success === true || payload.code === 0) && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+      return payload.data || {};
     }
     return payload;
   }
@@ -5324,7 +5334,7 @@ function ThemedAppShell() {
   }, /*#__PURE__*/React.createElement(App, null));
 }
 function AuthWrapper() {
-  const isAuthReady = () => window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
+  const isAuthReady = () => window.__PROACTIVE_PAGE_MODE || window.__PROACTIVE_AUTH_READY || !window.__PROACTIVE_AUTH_PENDING;
   // ready 初值根据启动页鉴权状态决定，避免无鉴权场景下多等一次事件。
   const [ready, setReady] = React.useState(isAuthReady);
   React.useEffect(() => {
@@ -5351,9 +5361,60 @@ function AuthWrapper() {
   if (!ready) return null;
   return /*#__PURE__*/React.createElement(AppProvider, null, /*#__PURE__*/React.createElement(ThemedAppShell, null));
 }
+class RuntimeErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      error: null
+    };
+  }
+  static getDerivedStateFromError(error) {
+    return {
+      error
+    };
+  }
+  componentDidCatch(error, info) {
+    console.error('[ProactivePage] React render failed', error, info);
+  }
+  render() {
+    if (this.state.error) {
+      const message = this.state.error?.message || '页面渲染失败';
+      return /*#__PURE__*/React.createElement("div", {
+        className: "boot-loader"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "boot-loader__logo"
+      }, /*#__PURE__*/React.createElement("img", {
+        src: "./logo.png",
+        alt: "logo"
+      })), /*#__PURE__*/React.createElement("div", {
+        className: "boot-loader__title"
+      }, "\u4E3B\u52A8\u6D88\u606F\u7BA1\u7406\u7AEF"), /*#__PURE__*/React.createElement("div", {
+        className: "boot-loader__subtitle",
+        style: {
+          color: '#B3261E'
+        }
+      }, "\u9875\u9762\u6E32\u67D3\u5931\u8D25: ", message));
+    }
+    return this.props.children;
+  }
+}
 if (!window.__PROACTIVE_WEBUI_INITIALIZED) {
   // 防止脚本重复执行时反复 createRoot，避免 React 在同一节点重复挂载。
   window.__PROACTIVE_WEBUI_INITIALIZED = true;
-  const root = ReactDOM.createRoot(document.getElementById('root'));
-  root.render(/*#__PURE__*/React.createElement(AuthWrapper, null));
+  try {
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(/*#__PURE__*/React.createElement(RuntimeErrorBoundary, null, /*#__PURE__*/React.createElement(AuthWrapper, null)));
+  } catch (e) {
+    const rootEl = document.getElementById('root');
+    if (rootEl) {
+      rootEl.innerHTML = `
+                <div class="boot-loader">
+                    <div class="boot-loader__logo"><img src="./logo.png" alt="logo"></div>
+                    <div class="boot-loader__title">主动消息管理端</div>
+                    <div class="boot-loader__subtitle" style="color:#B3261E">页面挂载失败: ${String(e && e.message ? e.message : e)}</div>
+                </div>
+            `;
+    }
+    throw e;
+  }
 }
