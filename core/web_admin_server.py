@@ -161,9 +161,15 @@ class WebAdminServer:
             ("login", self._page_login, ["POST"]),
             ("status", self._page_status, ["GET"]),
             ("config", self._page_config, ["GET", "POST"]),
+            ("config-save", self._page_update_config, ["POST"]),
             ("config-schema", self._page_get_config_schema, ["GET"]),
             ("session-config/sessions", self._page_list_session_configs, ["GET"]),
             ("session-config/<path:umo>", self._page_session_config, ["GET", "POST"]),
+            (
+                "session-config-save/<path:umo>",
+                self._page_update_session_config,
+                ["POST"],
+            ),
             (
                 "session-config-delete/<path:umo>",
                 self._page_reset_session_config,

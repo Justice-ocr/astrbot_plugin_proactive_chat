@@ -1128,7 +1128,7 @@
                 web_admin: cleaned.web_admin,
                 notification_settings: cleaned.notification_settings
             };
-            apiPost(route("config"), payload).then(function (data) {
+            apiPost(route("config-save"), payload).then(function (data) {
                 state.config = cleaned;
                 setFeedback("success", "全局配置已保存。");
                 setError("");
@@ -1173,7 +1173,7 @@
         try {
             syncConfigFromVisibleControls();
             var payload = { mode: "effective", effective: cleanConfig(state.config || {}) };
-            apiPost(route("session-config/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
+            apiPost(route("session-config-save/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
                 state.sessionDetail = data || {};
                 state.sessionDetail.effective = payload.effective;
                 state.config = payload.effective;
