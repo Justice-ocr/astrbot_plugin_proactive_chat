@@ -15,9 +15,12 @@ class EventsMixin:
     data_lock: Any
     session_data: dict
     last_message_times: dict[str, float]
+    last_external_bot_message_times: dict[str, float]
     session_temp_state: dict[str, dict]
     first_message_logged: set[str]
     scheduler: Any
+    proactive_sending_sessions: set[str]
+    proactive_send_mark_times: dict[str, float]
 
     def _extract_event_text(self, event: AstrMessageEvent) -> str:
         """提取一条事件中的纯文本，供语境调度临时判断使用。"""
@@ -372,6 +375,33 @@ class EventsMixin:
         """监听 Bot 发送消息后事件，重置群聊沉默倒计时。"""
         session_id = event.unified_msg_origin
         normalized_session_id = self._normalize_session_id(session_id)
+        current_time = time.time()
+        chat_guard_key = self._get_chat_guard_key(normalized_session_id)
+        recent_own_send_time = self.proactive_send_mark_times.get(chat_guard_key, 0)
+        is_own_proactive_send = (
+            chat_guard_key in self.proactive_sending_sessions
+            or 0 < current_time - recent_own_send_time <= 1
+        )
+
+        if not is_own_proactive_send:
+            self.last_bot_message_time = current_time
+            self.last_external_bot_message_times[chat_guard_key] = current_time
+            self.last_external_bot_message_times[normalized_session_id] = current_time
+            try:
+                delayed = await self._delay_schedule_for_external_bot_message(
+                    normalized_session_id,
+                    current_time,
+                )
+                if not delayed:
+                    await self._delay_runtime_timer_for_external_bot_message(
+                        normalized_session_id,
+                        current_time,
+                    )
+            except Exception as e:
+                logger.debug(
+                    f"[主动消息] 记录其它插件 Bot 消息并顺延任务失败喵: {e}"
+                )
+            return
 
         # 只对群聊生效
         if "group" not in normalized_session_id.lower():
@@ -410,7 +440,6 @@ class EventsMixin:
                 await self._save_data_internal()
 
         # 周期性清理临时状态，避免 session_temp_state 长期膨胀
-        current_time = time.time()
         self._cleanup_counter += 1
 
         # 周期性清理过期会话状态

@@ -23,6 +23,7 @@ class ProactiveCoreMixin:
     data_lock: Any
     session_data: dict
     last_message_times: dict[str, float]
+    last_external_bot_message_times: dict[str, float]
     telemetry: Any
     manual_trigger_sessions: set[str]
     active_chat_sessions: set[str]
@@ -216,6 +217,13 @@ class ProactiveCoreMixin:
                     )
                     return
 
+            if await self._delay_if_recent_external_bot_message(
+                normalized_session_id,
+                session_config,
+            ):
+                await self._clear_manual_trigger_state(normalized_session_id)
+                return
+
             logger.info(
                 f"[主动消息] 开始生成第 {unanswered_count + 1} 次主动消息喵，当前未回复次数: {unanswered_count} 次喵。"
             )
@@ -255,6 +263,9 @@ class ProactiveCoreMixin:
                     self.last_message_times.get(session_id, 0),
                     self.last_message_times.get(state_session_id, 0),
                 ),
+                "external_bot_message_time": self._get_external_bot_message_time(
+                    state_session_id
+                ),
                 "unanswered_count": unanswered_count,
                 "timestamp": time.time(),
             }
@@ -277,6 +288,9 @@ class ProactiveCoreMixin:
                     self.last_message_times.get(session_id, 0),
                     self.last_message_times.get(state_session_id, 0),
                 ),
+                "external_bot_message_time": self._get_external_bot_message_time(
+                    state_session_id
+                ),
                 "unanswered_count": self.session_data.get(state_session_id, {}).get(
                     "unanswered_count",
                     self.session_data.get(session_id, {}).get("unanswered_count", 0),
@@ -287,13 +301,28 @@ class ProactiveCoreMixin:
             has_new_message = (
                 current_state["last_message_time"]
                 > task_start_state["last_message_time"]
+                or current_state["external_bot_message_time"]
+                > task_start_state["external_bot_message_time"]
                 or current_state["unanswered_count"]
                 != task_start_state["unanswered_count"]
             )
 
             if has_new_message:
+                if (
+                    current_state["external_bot_message_time"]
+                    > task_start_state["external_bot_message_time"]
+                ):
+                    delayed = await self._delay_schedule_for_external_bot_message(
+                        state_session_id,
+                        current_state["external_bot_message_time"],
+                    )
+                    if not delayed:
+                        await self._schedule_next_chat_and_save(
+                            state_session_id,
+                            reset_counter=False,
+                        )
                 logger.info(
-                    "[主动消息] 检测到用户在LLM生成期间发送了新消息，丢弃本次主动消息喵。"
+                    "[主动消息] 检测到用户或其它插件在LLM生成期间发送了新消息，丢弃本次主动消息喵。"
                 )
                 return
 

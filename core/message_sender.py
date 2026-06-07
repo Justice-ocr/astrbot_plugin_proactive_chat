@@ -6,6 +6,7 @@ import asyncio
 import math
 import random
 import re
+import time
 import traceback
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,8 @@ class SenderMixin:
     session_data: dict
     telemetry: Any
     data_dir: Any
+    proactive_sending_sessions: set[str]
+    proactive_send_mark_times: dict[str, float]
 
     def _split_text(self, text: str, settings: dict) -> list[str]:
         """根据配置对文本进行分段。"""
@@ -321,7 +324,13 @@ class SenderMixin:
         parsed = self._parse_session_id(session_id)
         if not parsed:
             # 无法解析则使用核心 API 兜底
-            await self.context.send_message(session_id, chain)
+            guard_key = self._get_chat_guard_key(session_id)
+            self.proactive_sending_sessions.add(guard_key)
+            try:
+                await self.context.send_message(session_id, chain)
+            finally:
+                self.proactive_send_mark_times[guard_key] = time.time()
+                self.proactive_sending_sessions.discard(guard_key)
             await self._persist_proactive_message_to_platform_history(session_id, chain)
             return
 
@@ -340,7 +349,13 @@ class SenderMixin:
             logger.warning(
                 f"[主动消息] 找不到指定的平台 {p_id} 喵，尝试使用核心 API 兜底喵。"
             )
-            await self.context.send_message(session_id, chain)
+            guard_key = self._get_chat_guard_key(session_id)
+            self.proactive_sending_sessions.add(guard_key)
+            try:
+                await self.context.send_message(session_id, chain)
+            finally:
+                self.proactive_send_mark_times[guard_key] = time.time()
+                self.proactive_sending_sessions.discard(guard_key)
             await self._persist_proactive_message_to_platform_history(session_id, chain)
             return
 
@@ -350,7 +365,13 @@ class SenderMixin:
 
         try:
             session_obj = MS(platform_name=p_id, message_type=m_type, session_id=t_id)
-            await target_platform.send_by_session(session_obj, chain)
+            guard_key = self._get_chat_guard_key(session_id)
+            self.proactive_sending_sessions.add(guard_key)
+            try:
+                await target_platform.send_by_session(session_obj, chain)
+            finally:
+                self.proactive_send_mark_times[guard_key] = time.time()
+                self.proactive_sending_sessions.discard(guard_key)
             logger.debug(f"[主动消息] 消息将通过平台 {p_id} 送达喵")
             if p_id != "webchat":
                 await self._persist_proactive_message_to_platform_history(

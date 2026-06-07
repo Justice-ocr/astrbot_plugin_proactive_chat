@@ -68,6 +68,8 @@ class ProactiveChatPlugin(
         # 记录当前正在执行“立即触发”的会话，防止重复点击导致并发主动消息。
         self.manual_trigger_sessions: set[str] = set()
         self.active_chat_sessions: set[str] = set()
+        self.proactive_sending_sessions: set[str] = set()
+        self.proactive_send_mark_times: dict[str, float] = {}
 
         # 会话差异配置管理器、通知中心与 Web 管理端
         self.session_override_manager = SessionOverrideManager(self.data_dir)
@@ -98,6 +100,7 @@ class ProactiveChatPlugin(
         # 群聊沉默倒计时与自动触发计时器
         self.group_timers: dict[str, asyncio.TimerHandle] = {}
         self.last_bot_message_time = 0  # 预留字段：记录 Bot 最近发言时间
+        self.last_external_bot_message_times: dict[str, float] = {}
         self.session_temp_state: dict[
             str, dict
         ] = {}  # 临时态（如群聊最后用户发言时间）

@@ -22,6 +22,7 @@ class SchedulerMixin:
     group_timers: dict[str, asyncio.TimerHandle]
     auto_trigger_timers: dict[str, asyncio.TimerHandle]
     last_message_times: dict[str, float]
+    last_external_bot_message_times: dict[str, float]
     plugin_start_time: float
     session_temp_state: dict[str, dict]
     _cleanup_counter: int
@@ -520,6 +521,237 @@ class SchedulerMixin:
         session_payload["last_schedule_reason"] = plan.get("reason", "")
         session_payload["last_schedule_rule"] = plan.get("rule", "")
         session_payload["last_schedule_source"] = plan.get("source", "")
+
+    def _get_related_scheduled_job(self, session_id: str) -> Any | None:
+        parsed = self._parse_session_id(session_id)
+        if not parsed:
+            return self.scheduler.get_job(session_id)
+
+        _, msg_type, target_id = parsed
+        is_friend = self._is_friend_type(msg_type)
+
+        direct_job = self.scheduler.get_job(session_id)
+        if direct_job:
+            return direct_job
+
+        for job in self.scheduler.get_jobs():
+            job_parsed = self._parse_session_id(str(job.id))
+            if not job_parsed:
+                continue
+            _, job_type, job_target = job_parsed
+            if self._is_friend_type(job_type) == is_friend and job_target == target_id:
+                return job
+
+        return None
+
+    def _get_external_bot_message_time(self, session_id: str) -> float:
+        normalized_session_id = self._normalize_session_id(session_id)
+        guard_key = self._get_chat_guard_key(normalized_session_id)
+        return max(
+            self.last_external_bot_message_times.get(guard_key, 0),
+            self.last_external_bot_message_times.get(normalized_session_id, 0),
+            self.last_external_bot_message_times.get(session_id, 0),
+        )
+
+    async def _delay_schedule_for_external_bot_message(
+        self,
+        session_id: str,
+        external_message_time: float | None = None,
+    ) -> bool:
+        normalized_session_id = self._normalize_session_id(session_id)
+        session_config = self._get_session_config(normalized_session_id)
+        if not session_config or not session_config.get("enable", False):
+            return False
+
+        external_time = (
+            external_message_time
+            if external_message_time is not None
+            else self._get_external_bot_message_time(normalized_session_id)
+        )
+        if not external_time:
+            return False
+
+        async with self.data_lock:
+            if self._is_unanswered_limit_reached(
+                normalized_session_id, session_config
+            ):
+                return False
+
+            job = self._get_related_scheduled_job(normalized_session_id)
+            session_payload = self.session_data.setdefault(normalized_session_id, {})
+
+            existing_next = session_payload.get("next_trigger_time")
+            if not isinstance(existing_next, (int, float)) and job:
+                next_run_time = getattr(job, "next_run_time", None)
+                if next_run_time is not None:
+                    existing_next = next_run_time.timestamp()
+
+            if not isinstance(existing_next, (int, float)):
+                return False
+
+            if existing_next <= external_time:
+                return False
+
+            schedule_conf = session_config.get("schedule_settings", {})
+            min_interval, max_interval = self._get_schedule_bounds(schedule_conf)
+            interval = session_payload.get("last_schedule_random_interval_seconds")
+            if not isinstance(interval, (int, float)) or interval <= 0:
+                interval = min_interval
+            interval = self._clamp_schedule_interval(
+                interval,
+                min_interval,
+                max_interval,
+            )
+
+            delayed_next_trigger = external_time + interval
+            current_time = time.time()
+            if delayed_next_trigger <= existing_next + 1:
+                return False
+
+            delayed_next_trigger = max(delayed_next_trigger, current_time + 60)
+            run_date = datetime.fromtimestamp(
+                delayed_next_trigger,
+                tz=self.timezone,
+            )
+
+            self._purge_related_jobs(normalized_session_id)
+            self.scheduler.add_job(
+                self.check_and_chat,
+                "date",
+                run_date=run_date,
+                args=[normalized_session_id],
+                id=normalized_session_id,
+                replace_existing=True,
+                misfire_grace_time=60,
+            )
+
+            plan = {
+                "next_trigger_time": delayed_next_trigger,
+                "scheduled_at": external_time,
+                "min_interval_seconds": min_interval,
+                "max_interval_seconds": max_interval,
+                "interval_seconds": interval,
+                "strategy": session_payload.get(
+                    "last_schedule_strategy", "external_bot_delay"
+                ),
+                "reason": "external_bot_message_delay",
+                "rule": session_payload.get("last_schedule_rule", ""),
+                "source": "external_bot_message",
+            }
+            self._write_schedule_plan_to_session(session_payload, plan)
+            await self._save_data_internal()
+
+            logger.info(
+                f"[主动消息] 检测到其它插件刚向 {self._get_session_log_str(normalized_session_id, session_config)} 发送消息喵，"
+                f"已将主动消息时间顺延至 {run_date.strftime('%Y-%m-%d %H:%M:%S')}，未回复次数保持不变喵。"
+            )
+            return True
+
+    async def _delay_if_recent_external_bot_message(
+        self,
+        session_id: str,
+        session_config: dict,
+    ) -> bool:
+        normalized_session_id = self._normalize_session_id(session_id)
+        external_time = self._get_external_bot_message_time(normalized_session_id)
+        if not external_time:
+            return False
+
+        session_payload = self.session_data.get(normalized_session_id, {})
+        scheduled_at = session_payload.get("last_scheduled_at")
+        if isinstance(scheduled_at, (int, float)) and external_time <= scheduled_at:
+            return False
+
+        return await self._delay_schedule_for_external_bot_message(
+            normalized_session_id,
+            external_time,
+        )
+
+    async def _delay_runtime_timer_for_external_bot_message(
+        self,
+        session_id: str,
+        external_message_time: float | None = None,
+    ) -> bool:
+        normalized_session_id = self._normalize_session_id(session_id)
+        session_config = self._get_session_config(normalized_session_id)
+        if not session_config or not session_config.get("enable", False):
+            return False
+
+        current_time = time.time()
+        external_time = external_message_time or current_time
+        delayed = False
+
+        auto_trigger_settings = session_config.get("auto_trigger_settings", {})
+        auto_trigger_minutes = auto_trigger_settings.get(
+            "auto_trigger_after_minutes", 5
+        )
+        if (
+            auto_trigger_settings.get("enable_auto_trigger", False)
+            and auto_trigger_minutes > 0
+            and normalized_session_id in self.auto_trigger_timers
+        ):
+            try:
+                self.auto_trigger_timers[normalized_session_id].cancel()
+            except Exception:
+                pass
+
+            def _auto_trigger_callback(captured_session_id=normalized_session_id):
+                self._track_task(
+                    asyncio.create_task(
+                        self._handle_auto_trigger_callback(
+                            captured_session_id, auto_trigger_minutes
+                        )
+                    )
+                )
+
+            loop = asyncio.get_running_loop()
+            delay_seconds = max(
+                60,
+                int(external_time + (float(auto_trigger_minutes) * 60) - current_time),
+            )
+            self.auto_trigger_timers[normalized_session_id] = loop.call_later(
+                delay_seconds, _auto_trigger_callback
+            )
+            delayed = True
+            logger.info(
+                f"[主动消息] 检测到其它插件刚向 {self._get_session_log_str(normalized_session_id, session_config)} 发送消息喵，"
+                f"已将自动触发倒计时顺延 {delay_seconds // 60} 分钟，未回复次数保持不变喵。"
+            )
+
+        if "group" in normalized_session_id.lower() and (
+            normalized_session_id in self.group_timers
+        ):
+            try:
+                self.group_timers[normalized_session_id].cancel()
+            except Exception:
+                pass
+
+            idle_minutes = session_config.get("group_idle_trigger_minutes", 10)
+
+            def _group_callback(captured_session_id=normalized_session_id):
+                self._track_task(
+                    asyncio.create_task(
+                        self._handle_group_silence_callback(
+                            captured_session_id, idle_minutes
+                        )
+                    )
+                )
+
+            loop = asyncio.get_running_loop()
+            delay_seconds = max(
+                60,
+                int(external_time + (float(idle_minutes) * 60) - current_time),
+            )
+            self.group_timers[normalized_session_id] = loop.call_later(
+                delay_seconds, _group_callback
+            )
+            delayed = True
+            logger.info(
+                f"[主动消息] 检测到其它插件刚向 {self._get_session_log_str(normalized_session_id, session_config)} 发送消息喵，"
+                f"已将群聊沉默倒计时顺延 {delay_seconds // 60} 分钟，未回复次数保持不变喵。"
+            )
+
+        return delayed
 
     def _purge_related_jobs(self, session_id: str) -> None:
         """清理同一目标但不同 UMO 的调度任务，防止幽灵任务。"""
