@@ -14,6 +14,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from astrbot.api import logger
 
@@ -143,6 +144,13 @@ class WebAdminServer:
                     "[主动消息] Web 管理端初始化失败喵，已自动禁用，不影响插件主体功能。"
                     f" 可能是 FastAPI / Pydantic 依赖版本不兼容: {e}"
                 )
+
+    def _decode_route_umo(self, umo: str) -> str:
+        """Decode URL-encoded UMO path parameters from Pages/Web API routes."""
+        try:
+            return unquote(str(umo or ""))
+        except Exception:
+            return str(umo or "")
 
     def register_astrbot_page_api(self) -> None:
         """向 AstrBot WebUI 插件 Page 暴露完整管理端接口。"""
@@ -604,7 +612,7 @@ class WebAdminServer:
         @self.app.get("/api/session-config/{umo:path}")
         async def get_session_config(umo: str):
             # 路径参数使用 path 转换器，允许会话 ID 中包含斜杠等特殊字符。
-            normalized = self.plugin._normalize_session_id(umo)
+            normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
             base = self.plugin._get_base_session_config(normalized)
             return {
                 "session": normalized,
@@ -620,7 +628,7 @@ class WebAdminServer:
 
         @self.app.post("/api/session-config/{umo:path}")
         async def update_session_config(umo: str, payload: dict[str, Any]):
-            normalized = self.plugin._normalize_session_id(umo)
+            normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
             # mode 用于兼容两种写法：直接提交 override，或提交最终 effective 配置。
             mode = payload.get("mode", "effective")
 
@@ -670,7 +678,7 @@ class WebAdminServer:
         @self.app.delete("/api/session-config/{umo:path}")
         async def reset_session_config(umo: str):
             # 删除覆写后，会话会重新完全继承全局配置。
-            normalized = self.plugin._normalize_session_id(umo)
+            normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
             await self.plugin.session_override_manager.delete_override(normalized)
             await self._broadcast_update("session-config")
             return {
@@ -687,7 +695,7 @@ class WebAdminServer:
 
         @self.app.post("/api/jobs/{umo:path}/reschedule")
         async def reschedule_job(umo: str):
-            normalized = self.plugin._normalize_session_id(umo)
+            normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
             session_config = self.plugin._get_session_config(normalized)
             if not session_config or not session_config.get("enable", False):
                 return JSONResponse(
@@ -867,7 +875,7 @@ class WebAdminServer:
         @self.app.post("/api/jobs/{umo:path}/trigger")
         async def trigger_job(umo: str):
             # 立即手动触发一次指定会话的检查与发言流程；同一会话在执行完成前禁止重复触发。
-            normalized = self.plugin._normalize_session_id(umo)
+            normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
             if normalized in self.plugin.manual_trigger_sessions:
                 return JSONResponse(
                     {
@@ -892,7 +900,7 @@ class WebAdminServer:
 
         @self.app.delete("/api/jobs/{umo:path}")
         async def cancel_job(umo: str):
-            normalized = self.plugin._normalize_session_id(umo)
+            normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
             removed = False
             try:
                 # APScheduler 中的 job id 直接使用规范化后的 session id。
@@ -1129,7 +1137,7 @@ class WebAdminServer:
         return result
 
     def _build_session_config_payload(self, umo: str) -> dict[str, Any]:
-        normalized = self.plugin._normalize_session_id(umo)
+        normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
         base = self.plugin._get_base_session_config(normalized)
         return {
             "session": normalized,
@@ -1141,7 +1149,7 @@ class WebAdminServer:
     async def _apply_session_config_payload(
         self, umo: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        normalized = self.plugin._normalize_session_id(umo)
+        normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
         mode = payload.get("mode", "effective")
 
         if mode == "override":
@@ -1176,7 +1184,7 @@ class WebAdminServer:
         }
 
     async def _reset_session_config_payload(self, umo: str) -> dict[str, Any]:
-        normalized = self.plugin._normalize_session_id(umo)
+        normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
         await self.plugin.session_override_manager.delete_override(normalized)
         await self._broadcast_update("session-config")
         return {
@@ -1187,7 +1195,7 @@ class WebAdminServer:
         }
 
     async def _reschedule_job_payload(self, umo: str) -> dict[str, Any]:
-        normalized = self.plugin._normalize_session_id(umo)
+        normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
         session_config = self.plugin._get_session_config(normalized)
         if not session_config or not session_config.get("enable", False):
             return {
@@ -1205,7 +1213,7 @@ class WebAdminServer:
         }
 
     async def _trigger_job_payload(self, umo: str) -> dict[str, Any]:
-        normalized = self.plugin._normalize_session_id(umo)
+        normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
         if normalized in self.plugin.manual_trigger_sessions:
             return {
                 "ok": False,
@@ -1225,7 +1233,7 @@ class WebAdminServer:
         }
 
     async def _cancel_job_payload(self, umo: str) -> dict[str, Any]:
-        normalized = self.plugin._normalize_session_id(umo)
+        normalized = self.plugin._normalize_session_id(self._decode_route_umo(umo))
         removed = False
         try:
             self.plugin.scheduler.remove_job(normalized)
