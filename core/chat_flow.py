@@ -25,6 +25,7 @@ class ProactiveCoreMixin:
     last_message_times: dict[str, float]
     telemetry: Any
     manual_trigger_sessions: set[str]
+    active_chat_sessions: set[str]
     web_admin_server: Any
 
     async def _clear_manual_trigger_state(self, session_id: str) -> None:
@@ -109,13 +110,22 @@ class ProactiveCoreMixin:
                 f"[主动消息] {self._get_session_log_str(session_id)} 的第 {new_unanswered_count} 次主动消息已发送完成，当前未回复次数: {new_unanswered_count} 次喵。"
             )
 
-            if is_private_session and scheduled_plan:
+            if (
+                is_private_session
+                and scheduled_plan
+                and not self._is_unanswered_limit_reached(
+                    session_id, session_config, new_unanswered_count
+                )
+            ):
                 session_payload = self.session_data.setdefault(session_id, {})
                 self._write_schedule_plan_to_session(session_payload, scheduled_plan)
                 scheduled_job_payload = {
                     "run_date": scheduled_plan["run_date"],
                     "session_config": session_config,
                 }
+            elif is_private_session:
+                session_payload = self.session_data.setdefault(session_id, {})
+                self._clear_session_schedule_state(session_id)
 
             await self._save_data_internal()
 
@@ -136,6 +146,14 @@ class ProactiveCoreMixin:
     async def check_and_chat(self, session_id: str) -> None:
         """由定时任务触发的核心函数，完成一次完整的主动消息流程。"""
         normalized_session_id = self._normalize_session_id(session_id)
+        if normalized_session_id in self.active_chat_sessions:
+            logger.info(
+                f"[涓诲姩娑堟伅] {self._get_session_log_str(normalized_session_id)} active chat task already exists, skip duplicate trigger."
+            )
+            await self._clear_manual_trigger_state(normalized_session_id)
+            return
+
+        self.active_chat_sessions.add(normalized_session_id)
         try:
             # 免打扰与启用状态检查
             is_allowed, block_reason = await self._is_chat_allowed(
@@ -170,8 +188,10 @@ class ProactiveCoreMixin:
                 unanswered_count = self.session_data.get(normalized_session_id, {}).get(
                     "unanswered_count", 0
                 )
-                max_unanswered = schedule_conf.get("max_unanswered_times", 3)
-                if max_unanswered > 0 and unanswered_count >= max_unanswered:
+                max_unanswered = self._get_max_unanswered_count(session_config)
+                if self._is_unanswered_limit_reached(
+                    normalized_session_id, session_config, unanswered_count
+                ):
                     logger.info(
                         f"[主动消息] {self._get_session_log_str(normalized_session_id, session_config)} 的未回复次数 ({unanswered_count}) 已达到上限 ({max_unanswered})，暂停主动消息喵。"
                     )
@@ -311,4 +331,5 @@ class ProactiveCoreMixin:
                     )
                 )
         finally:
+            self.active_chat_sessions.discard(normalized_session_id)
             await self._clear_manual_trigger_state(normalized_session_id)

@@ -29,7 +29,7 @@ class SchedulerMixin:
     async def _setup_auto_trigger(self, session_id: str, silent: bool = False) -> None:
         """为指定会话设置自动主动消息触发器。"""
         session_config = self._get_session_config(session_id)
-        if not session_config:
+        if not session_config or not session_config.get("enable", False):
             return
 
         # 读取自动触发配置
@@ -201,6 +201,38 @@ class SchedulerMixin:
         except Exception:
             value = min_interval
         return max(min_interval, min(value, max_interval))
+
+    def _get_max_unanswered_count(
+        self, session_config: dict | None, default: int = 3
+    ) -> int:
+        if not isinstance(session_config, dict):
+            return default
+        schedule_conf = session_config.get("schedule_settings", {})
+        if not isinstance(schedule_conf, dict):
+            return default
+        try:
+            return int(schedule_conf.get("max_unanswered_times", default) or 0)
+        except (TypeError, ValueError):
+            return default
+
+    def _is_unanswered_limit_reached(
+        self,
+        session_id: str,
+        session_config: dict | None,
+        unanswered_count: int | None = None,
+    ) -> bool:
+        max_unanswered = self._get_max_unanswered_count(session_config)
+        if max_unanswered <= 0:
+            return False
+        if unanswered_count is None:
+            try:
+                unanswered_count = int(
+                    self.session_data.get(session_id, {}).get("unanswered_count", 0)
+                    or 0
+                )
+            except (TypeError, ValueError):
+                unanswered_count = 0
+        return unanswered_count >= max_unanswered
 
     def _get_contextual_schedule_settings(self, schedule_conf: dict) -> dict[str, Any]:
         enabled = schedule_conf.get("enable_contextual_timing", True)
@@ -663,12 +695,13 @@ class SchedulerMixin:
             )
             return "existing"
 
-        schedule_conf = session_config.get("schedule_settings", {})
-        max_unanswered = schedule_conf.get("max_unanswered_times", 3)
+        max_unanswered = self._get_max_unanswered_count(session_config)
         unanswered_count = self.session_data.get(resolved_session_id, {}).get(
             "unanswered_count", 0
         )
-        if max_unanswered > 0 and unanswered_count >= max_unanswered:
+        if self._is_unanswered_limit_reached(
+            resolved_session_id, session_config, unanswered_count
+        ):
             logger.info(
                 f"[主动消息] {self._get_session_log_str(resolved_session_id, session_config)} 的未回复次数 ({unanswered_count}) "
                 f"已达到上限 ({max_unanswered})，跳过初始化自动触发器设置喵。"
@@ -719,6 +752,14 @@ class SchedulerMixin:
                 continue
 
             # 仅恢复存在 next_trigger_time 的持久化任务
+            if self._is_unanswered_limit_reached(session_id, session_config):
+                if self._clear_session_schedule_state(session_id):
+                    cleaned_runtime_state += 1
+                    logger.info(
+                        f"[涓诲姩娑堟伅] {self._get_session_log_str(session_id, session_config)} unanswered limit reached, clear persisted schedule state."
+                    )
+                continue
+
             next_trigger = session_info.get("next_trigger_time")
             if not next_trigger:
                 logger.debug(
@@ -791,7 +832,7 @@ class SchedulerMixin:
         """安排下一次主动聊天并立即将状态持久化到文件。"""
         normalized_session_id = self._normalize_session_id(session_id)
         session_config = self._get_session_config(normalized_session_id)
-        if not session_config:
+        if not session_config or not session_config.get("enable", False):
             return
 
         plan = await self._build_next_schedule_plan(
@@ -822,6 +863,16 @@ class SchedulerMixin:
                 ] = 0
 
             # 计算随机触发时间
+            if self._is_unanswered_limit_reached(normalized_session_id, session_config):
+                self._purge_related_jobs(normalized_session_id)
+                changed = self._clear_session_schedule_state(normalized_session_id)
+                if changed:
+                    await self._save_data_internal()
+                logger.info(
+                    f"[涓诲姩娑堟伅] {self._get_session_log_str(normalized_session_id, session_config)} unanswered limit reached, skip next schedule."
+                )
+                return
+
             run_date = plan["run_date"]
 
             # 更新调度器与持久化数据
@@ -907,6 +958,12 @@ class SchedulerMixin:
                     return
 
                 # 仅在插件启动后未收到任何消息时触发
+                if self._is_unanswered_limit_reached(session_id, current_config):
+                    logger.info(
+                        f"[涓诲姩娑堟伅] {self._get_session_log_str(session_id, current_config)} unanswered limit reached, skip auto trigger schedule."
+                    )
+                    return
+
                 last_message_time = self.last_message_times.get(session_id, 0)
                 current_time = time.time()
                 time_since_plugin_start = current_time - self.plugin_start_time
@@ -988,6 +1045,13 @@ class SchedulerMixin:
                 current_unanswered = self.session_data.get(session_id, {}).get(
                     "unanswered_count", 0
                 )
+                if self._is_unanswered_limit_reached(
+                    session_id, current_config, current_unanswered
+                ):
+                    logger.info(
+                        f"[涓诲姩娑堟伅] {self._get_session_log_str(session_id, current_config)} unanswered limit reached, skip group silence schedule."
+                    )
+                    return
 
             self._track_task(
                 asyncio.create_task(
