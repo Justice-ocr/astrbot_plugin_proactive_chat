@@ -1770,6 +1770,11 @@ class WebAdminServer:
             schedule_settings = session_config.get("schedule_settings", {})
             context_settings = session_config.get("context_settings", {})
             auto_trigger_settings = session_config.get("auto_trigger_settings", {})
+            unanswered_count = session_data.get("unanswered_count", 0)
+            if self.plugin._is_unanswered_limit_reached(
+                normalized_session_id, session_config, unanswered_count
+            ):
+                continue
             jobs.append(
                 {
                     "id": session_id,
@@ -1793,7 +1798,7 @@ class WebAdminServer:
                     "next_run_time": (
                         job.next_run_time.isoformat() if job.next_run_time else None
                     ),
-                    "unanswered_count": session_data.get("unanswered_count", 0),
+                    "unanswered_count": unanswered_count,
                     "manual_trigger_in_progress": session_id
                     in self.plugin.manual_trigger_sessions,
                     # 以下字段用于前端推导进度条与调度窗口说明。
@@ -1840,6 +1845,11 @@ class WebAdminServer:
             schedule_settings = session_config.get("schedule_settings", {})
             context_settings = session_config.get("context_settings", {})
             auto_trigger_settings = session_config.get("auto_trigger_settings", {})
+            unanswered_count = session_data.get("unanswered_count", 0)
+            if self.plugin._is_unanswered_limit_reached(
+                normalized_session_id, session_config, unanswered_count
+            ):
+                continue
             next_trigger_time = session_data.get("next_trigger_time")
             next_run_time = None
             if next_trigger_time:
@@ -1873,7 +1883,7 @@ class WebAdminServer:
                         auto_trigger_settings.get("max_unanswered_times", 0),
                     ),
                     "next_run_time": next_run_time,
-                    "unanswered_count": session_data.get("unanswered_count", 0),
+                    "unanswered_count": unanswered_count,
                     "manual_trigger_in_progress": normalized_session_id
                     in self.plugin.manual_trigger_sessions,
                     "next_trigger_time": next_trigger_time,

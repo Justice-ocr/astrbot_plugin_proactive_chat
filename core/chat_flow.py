@@ -208,6 +208,9 @@ class ProactiveCoreMixin:
                 if self._is_unanswered_limit_reached(
                     normalized_session_id, session_config, unanswered_count
                 ):
+                    self._purge_related_jobs(normalized_session_id)
+                    if self._clear_session_schedule_state(normalized_session_id):
+                        await self._save_data_internal()
                     logger.info(
                         f"[主动消息] {self._get_session_log_str(normalized_session_id, session_config)} 的未回复次数 ({unanswered_count}) 已达到上限 ({max_unanswered})，暂停主动消息喵。"
                     )
