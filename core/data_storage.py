@@ -83,6 +83,10 @@ class StorageMixin:
             "last_schedule_reason",
             "last_schedule_rule",
             "last_schedule_source",
+            "last_schedule_history_session_id",
+            "last_schedule_history_conv_id",
+            "last_schedule_history_count",
+            "last_schedule_history_last_role",
         ]:
             if key not in incoming:
                 continue
@@ -112,6 +116,10 @@ class StorageMixin:
                 "last_schedule_reason",
                 "last_schedule_rule",
                 "last_schedule_source",
+                "last_schedule_history_session_id",
+                "last_schedule_history_conv_id",
+                "last_schedule_history_count",
+                "last_schedule_history_last_role",
             }:
                 base_scheduled_at = merged.get("last_scheduled_at")
                 incoming_scheduled_at = incoming.get("last_scheduled_at")

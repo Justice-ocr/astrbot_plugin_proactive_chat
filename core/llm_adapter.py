@@ -487,6 +487,69 @@ class LlmMixin:
             return ""
         return self._sanitize_platform_context_text(content)
 
+    async def _get_conversation_history_snapshot(
+        self, session_id: str
+    ) -> dict[str, Any]:
+        """Return a lightweight conversation-history baseline for schedule checks."""
+        conversation_manager = getattr(self.context, "conversation_manager", None)
+        if not conversation_manager:
+            return {}
+
+        candidate_session_ids = [session_id]
+        try:
+            normalized_session_id = self._normalize_session_id(session_id)
+        except Exception:
+            normalized_session_id = session_id
+        if normalized_session_id and normalized_session_id not in candidate_session_ids:
+            candidate_session_ids.append(normalized_session_id)
+
+        for candidate in candidate_session_ids:
+            try:
+                conv_id = await conversation_manager.get_curr_conversation_id(
+                    candidate
+                )
+                if not conv_id:
+                    continue
+
+                conversation = await conversation_manager.get_conversation(
+                    candidate, conv_id
+                )
+                history = getattr(conversation, "history", None)
+                if isinstance(history, str):
+                    try:
+                        history = await asyncio.to_thread(json.loads, history)
+                    except (json.JSONDecodeError, TypeError):
+                        history = []
+                if not isinstance(history, list):
+                    history = []
+
+                last_role = ""
+                if history:
+                    last_message = history[-1]
+                    if hasattr(last_message, "to_dict"):
+                        try:
+                            last_message = last_message.to_dict()
+                        except Exception:
+                            pass
+                    if isinstance(last_message, dict):
+                        last_role = str(last_message.get("role") or "").lower()
+                    else:
+                        last_role = str(getattr(last_message, "role", "") or "").lower()
+
+                return {
+                    "session_id": candidate,
+                    "conv_id": conv_id,
+                    "count": len(history),
+                    "last_role": last_role,
+                }
+            except Exception as e:
+                logger.debug(
+                    f"[主动消息] 读取 {self._get_session_log_str(candidate)} 的对话历史快照失败喵: {e}"
+                )
+                continue
+
+        return {}
+
     def _build_conversation_history_insight_context(
         self,
         history: list[Any],

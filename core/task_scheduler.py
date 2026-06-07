@@ -164,6 +164,10 @@ class SchedulerMixin:
             "last_schedule_reason",
             "last_schedule_rule",
             "last_schedule_source",
+            "last_schedule_history_session_id",
+            "last_schedule_history_conv_id",
+            "last_schedule_history_count",
+            "last_schedule_history_last_role",
         }
 
         changed = False
@@ -493,6 +497,12 @@ class SchedulerMixin:
 
         scheduled_at = time.time()
         next_trigger_time = scheduled_at + int(plan["interval_seconds"])
+        history_snapshot = await self._get_conversation_history_snapshot(session_id)
+        if history_snapshot:
+            plan["history_session_id"] = history_snapshot.get("session_id", "")
+            plan["history_conv_id"] = history_snapshot.get("conv_id", "")
+            plan["history_count"] = history_snapshot.get("count")
+            plan["history_last_role"] = history_snapshot.get("last_role", "")
         plan["scheduled_at"] = scheduled_at
         plan["next_trigger_time"] = next_trigger_time
         plan["run_date"] = datetime.fromtimestamp(next_trigger_time, tz=self.timezone)
@@ -521,6 +531,18 @@ class SchedulerMixin:
         session_payload["last_schedule_reason"] = plan.get("reason", "")
         session_payload["last_schedule_rule"] = plan.get("rule", "")
         session_payload["last_schedule_source"] = plan.get("source", "")
+        history_fields = {
+            "history_session_id": "last_schedule_history_session_id",
+            "history_conv_id": "last_schedule_history_conv_id",
+            "history_count": "last_schedule_history_count",
+            "history_last_role": "last_schedule_history_last_role",
+        }
+        for plan_key, session_key in history_fields.items():
+            value = plan.get(plan_key)
+            if value is None or (plan_key != "history_count" and value == ""):
+                session_payload.pop(session_key, None)
+            else:
+                session_payload[session_key] = value
 
     def _get_related_scheduled_job(self, session_id: str) -> Any | None:
         parsed = self._parse_session_id(session_id)
@@ -557,6 +579,8 @@ class SchedulerMixin:
         self,
         session_id: str,
         external_message_time: float | None = None,
+        *,
+        allow_elapsed_schedule: bool = False,
     ) -> bool:
         normalized_session_id = self._normalize_session_id(session_id)
         session_config = self._get_session_config(normalized_session_id)
@@ -589,8 +613,11 @@ class SchedulerMixin:
             if not isinstance(existing_next, (int, float)):
                 return False
 
+            current_time = time.time()
             if existing_next <= external_time:
-                return False
+                if not allow_elapsed_schedule:
+                    return False
+                external_time = current_time
 
             schedule_conf = session_config.get("schedule_settings", {})
             min_interval, max_interval = self._get_schedule_bounds(schedule_conf)
@@ -604,7 +631,6 @@ class SchedulerMixin:
             )
 
             delayed_next_trigger = external_time + interval
-            current_time = time.time()
             if delayed_next_trigger <= existing_next + 1:
                 return False
 
@@ -638,6 +664,14 @@ class SchedulerMixin:
                 "rule": session_payload.get("last_schedule_rule", ""),
                 "source": "external_bot_message",
             }
+            history_snapshot = await self._get_conversation_history_snapshot(
+                normalized_session_id
+            )
+            if history_snapshot:
+                plan["history_session_id"] = history_snapshot.get("session_id", "")
+                plan["history_conv_id"] = history_snapshot.get("conv_id", "")
+                plan["history_count"] = history_snapshot.get("count")
+                plan["history_last_role"] = history_snapshot.get("last_role", "")
             self._write_schedule_plan_to_session(session_payload, plan)
             await self._save_data_internal()
 
@@ -654,17 +688,64 @@ class SchedulerMixin:
     ) -> bool:
         normalized_session_id = self._normalize_session_id(session_id)
         external_time = self._get_external_bot_message_time(normalized_session_id)
-        if not external_time:
-            return False
+        if external_time:
+            session_payload = self.session_data.get(normalized_session_id, {})
+            scheduled_at = session_payload.get("last_scheduled_at")
+            if not (
+                isinstance(scheduled_at, (int, float))
+                and external_time <= scheduled_at
+            ):
+                return await self._delay_schedule_for_external_bot_message(
+                    normalized_session_id,
+                    external_time,
+                )
 
+        return await self._delay_if_history_has_new_bot_message(
+            normalized_session_id,
+            session_config,
+        )
+
+    async def _delay_if_history_has_new_bot_message(
+        self,
+        session_id: str,
+        session_config: dict,
+    ) -> bool:
+        normalized_session_id = self._normalize_session_id(session_id)
         session_payload = self.session_data.get(normalized_session_id, {})
-        scheduled_at = session_payload.get("last_scheduled_at")
-        if isinstance(scheduled_at, (int, float)) and external_time <= scheduled_at:
+        baseline_conv_id = session_payload.get("last_schedule_history_conv_id")
+        baseline_count = session_payload.get("last_schedule_history_count")
+        if not baseline_conv_id or not isinstance(baseline_count, (int, float)):
             return False
 
+        history_snapshot = await self._get_conversation_history_snapshot(
+            normalized_session_id
+        )
+        if not history_snapshot:
+            return False
+
+        current_conv_id = history_snapshot.get("conv_id")
+        current_count = history_snapshot.get("count")
+        current_role = str(history_snapshot.get("last_role") or "").lower()
+        if (
+            str(current_conv_id) != str(baseline_conv_id)
+            or not isinstance(current_count, (int, float))
+            or current_count <= baseline_count
+            or current_role not in {"assistant", "bot"}
+        ):
+            return False
+
+        current_time = time.time()
+        guard_key = self._get_chat_guard_key(normalized_session_id)
+        self.last_external_bot_message_times[guard_key] = current_time
+        self.last_external_bot_message_times[normalized_session_id] = current_time
+        logger.info(
+            f"[主动消息] 检测到 {self._get_session_log_str(normalized_session_id, session_config)} "
+            "在排期后新增 Bot 对话历史，已顺延主动消息且未回复次数保持不变喵。"
+        )
         return await self._delay_schedule_for_external_bot_message(
             normalized_session_id,
-            external_time,
+            current_time,
+            allow_elapsed_schedule=True,
         )
 
     async def _delay_runtime_timer_for_external_bot_message(
@@ -1226,6 +1307,22 @@ class SchedulerMixin:
                 session_payload["last_schedule_random_interval_seconds"] = (
                     random_interval
                 )
+                history_snapshot = await self._get_conversation_history_snapshot(
+                    session_id
+                )
+                if history_snapshot:
+                    session_payload["last_schedule_history_session_id"] = (
+                        history_snapshot.get("session_id", "")
+                    )
+                    session_payload["last_schedule_history_conv_id"] = (
+                        history_snapshot.get("conv_id", "")
+                    )
+                    session_payload["last_schedule_history_count"] = (
+                        history_snapshot.get("count")
+                    )
+                    session_payload["last_schedule_history_last_role"] = (
+                        history_snapshot.get("last_role", "")
+                    )
 
                 self.scheduler.add_job(
                     self.check_and_chat,
