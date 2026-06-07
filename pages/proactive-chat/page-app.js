@@ -453,6 +453,18 @@
         var autoCards = timerCards.auto;
         var groupCards = timerCards.group;
         var fallbackCards = timerCards.fallback;
+        var scheduledAutoCards = fallbackCards.filter(function (card) {
+            return detectSessionType(card.session_id || card.session || card.id) !== "group";
+        });
+        var scheduledGroupCards = fallbackCards.filter(function (card) {
+            return detectSessionType(card.session_id || card.session || card.id) === "group";
+        });
+        var visibleAutoTriggerCount = autoCards.length + scheduledAutoCards.length;
+        var visibleGroupTimerCount = groupCards.length + scheduledGroupCards.length;
+        var autoTriggerSummary = visibleAutoTriggerCount + " 个";
+        if (scheduledAutoCards.length) autoTriggerSummary += "（实时 " + autoCards.length + " / 调度 " + scheduledAutoCards.length + "）";
+        var groupTimerSummary = visibleGroupTimerCount + " 个";
+        if (scheduledGroupCards.length) groupTimerSummary += "（实时 " + groupCards.length + " / 调度 " + scheduledGroupCards.length + "）";
         var allCards = groupCards.concat(autoCards).concat(fallbackCards);
         var realJobsCount = Number(status.jobs_count || 0);
         var visibleJobsCount = Math.max(realJobsCount, asArray(state.jobs).length);
@@ -462,7 +474,7 @@
             metric("插件状态", status.running ? "运行中" : "已停止", "版本 " + text(status.version, "...")),
             metric("运行时长", formatDuration(status.uptime_seconds), "启动后持续运行时间"),
             metric("调度任务", text(visibleJobsCount, "0"), (status.scheduler_running ? "调度器运行中" : "调度器未启动") + " · 已调度 " + realJobsCount + " / 待调度 " + pendingJobsCount),
-            metric("会话数据", text(status.sessions_count, "0"), "自动触发 " + autoCards.length + " / 群沉默 " + groupCards.length),
+            metric("会话数据", text(status.sessions_count, "0"), "自动/会话触发 " + visibleAutoTriggerCount + " / 群沉默 " + visibleGroupTimerCount),
             '</div>',
             '<div class="pc-grid two">',
             '<div class="pc-card"><div class="pc-card-header"><div><div class="pc-card-title">会话计时器可视化</div><div class="pc-card-subtitle">实时展示自动触发检测与群沉默检测的倒计时、进度和会话状态。</div></div></div>',
@@ -472,9 +484,9 @@
             infoRow("调度器", status.scheduler_running ? "运行中" : "未启动"),
             infoRow("当前任务总数", visibleJobsCount + " 个"),
             pendingJobsCount ? infoRow("待调度会话", pendingJobsCount + " 个") : "",
-            infoRow("自动触发计时器", autoCards.length + " 个"),
-            infoRow("群沉默计时器", groupCards.length + " 个"),
-            fallbackCards.length ? infoRow("会话触发倒计时", fallbackCards.length + " 个") : "",
+            infoRow("自动/会话触发计时器", autoTriggerSummary),
+            infoRow("群沉默计时器", groupTimerSummary),
+            fallbackCards.length ? infoRow("其中会话调度倒计时", fallbackCards.length + " 个") : "",
             infoRow("数据时间", formatDate(status.timestamp)),
             '</div></div></div>'
         ].join("");
