@@ -28,6 +28,21 @@ class ProactiveCoreMixin:
     active_chat_sessions: set[str]
     web_admin_server: Any
 
+    def _get_chat_guard_key(self, session_id: str) -> str:
+        """Return a platform-independent key for one logical chat target."""
+        parsed = self._parse_session_id(session_id)
+        if not parsed:
+            return self._normalize_session_id(session_id)
+
+        _platform, message_type, target_id = parsed
+        if "Friend" in message_type or "Private" in message_type:
+            chat_scope = "private"
+        elif "Group" in message_type or "Guild" in message_type:
+            chat_scope = "group"
+        else:
+            chat_scope = message_type or "unknown"
+        return f"{chat_scope}:{target_id}"
+
     async def _clear_manual_trigger_state(self, session_id: str) -> None:
         """释放指定会话的手动触发占用状态，并向管理端广播任务刷新。"""
         normalized_session_id = self._normalize_session_id(session_id)
@@ -146,14 +161,15 @@ class ProactiveCoreMixin:
     async def check_and_chat(self, session_id: str) -> None:
         """由定时任务触发的核心函数，完成一次完整的主动消息流程。"""
         normalized_session_id = self._normalize_session_id(session_id)
-        if normalized_session_id in self.active_chat_sessions:
+        chat_guard_key = self._get_chat_guard_key(normalized_session_id)
+        if chat_guard_key in self.active_chat_sessions:
             logger.info(
-                f"[涓诲姩娑堟伅] {self._get_session_log_str(normalized_session_id)} active chat task already exists, skip duplicate trigger."
+                f"[主动消息] {self._get_session_log_str(normalized_session_id)} 已有主动消息任务正在执行，跳过重复触发喵。"
             )
             await self._clear_manual_trigger_state(normalized_session_id)
             return
 
-        self.active_chat_sessions.add(normalized_session_id)
+        self.active_chat_sessions.add(chat_guard_key)
         try:
             # 免打扰与启用状态检查
             is_allowed, block_reason = await self._is_chat_allowed(
@@ -227,11 +243,15 @@ class ProactiveCoreMixin:
             system_prompt = request_package["system_prompt"]
             # 可能使用规范化后的会话 ID（由上下文准备阶段返回）
             session_id = request_package.get("session_id", session_id)
+            state_session_id = self._normalize_session_id(session_id)
 
             # 记录任务开始状态快照
             # 用于检测 LLM 生成窗口内是否出现用户新消息
             task_start_state = {
-                "last_message_time": self.last_message_times.get(session_id, 0),
+                "last_message_time": max(
+                    self.last_message_times.get(session_id, 0),
+                    self.last_message_times.get(state_session_id, 0),
+                ),
                 "unanswered_count": unanswered_count,
                 "timestamp": time.time(),
             }
@@ -250,9 +270,13 @@ class ProactiveCoreMixin:
 
             # 检查生成期间是否有新消息
             current_state = {
-                "last_message_time": self.last_message_times.get(session_id, 0),
-                "unanswered_count": self.session_data.get(session_id, {}).get(
-                    "unanswered_count", 0
+                "last_message_time": max(
+                    self.last_message_times.get(session_id, 0),
+                    self.last_message_times.get(state_session_id, 0),
+                ),
+                "unanswered_count": self.session_data.get(state_session_id, {}).get(
+                    "unanswered_count",
+                    self.session_data.get(session_id, {}).get("unanswered_count", 0),
                 ),
             }
 
@@ -261,7 +285,7 @@ class ProactiveCoreMixin:
                 current_state["last_message_time"]
                 > task_start_state["last_message_time"]
                 or current_state["unanswered_count"]
-                < task_start_state["unanswered_count"]
+                != task_start_state["unanswered_count"]
             )
 
             if has_new_message:
@@ -331,5 +355,5 @@ class ProactiveCoreMixin:
                     )
                 )
         finally:
-            self.active_chat_sessions.discard(normalized_session_id)
+            self.active_chat_sessions.discard(chat_guard_key)
             await self._clear_manual_trigger_state(normalized_session_id)
