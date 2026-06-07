@@ -80,6 +80,35 @@ class EventsMixin:
                     event.get_self_id()
                 )
 
+        # 过滤 Bot 自身消息，避免其它插件定时发送的私聊消息被误判为“用户回复”。
+        sender_id = None
+        try:
+            if hasattr(event, "message_obj") and event.message_obj:
+                sender = getattr(event.message_obj, "sender", None)
+                if sender:
+                    sender_id = getattr(sender, "id", None) or getattr(
+                        sender, "user_id", None
+                    )
+            if not sender_id:
+                sender_id = getattr(event, "user_id", None) or getattr(
+                    event, "sender_id", None
+                )
+            if not sender_id and hasattr(event, "get_sender_id"):
+                sender_id = event.get_sender_id()
+        except Exception as e:
+            logger.debug(f"[主动消息] 获取私聊发送者ID失败喵: {e}")
+
+        self_id = (
+            event.get_self_id()
+            or self.session_data.get(session_id, {}).get("self_id")
+            or self.session_data.get(normalized_session_id, {}).get("self_id")
+        )
+        if self_id and sender_id and str(sender_id) == str(self_id):
+            logger.debug(
+                f"[主动消息] 检测到 {self._get_session_log_str(session_id)} 的 Bot 自身私聊消息，跳过用户回复逻辑喵。"
+            )
+            return
+
         # 更新消息时间（仅插件启动后用于自动触发）
         current_time = time.time()
         self.last_message_times[normalized_session_id] = current_time
