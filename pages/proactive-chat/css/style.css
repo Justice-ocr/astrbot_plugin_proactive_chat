@@ -3042,7 +3042,7 @@ body.dark-theme .connection-chip {
         gap: 16px;
         grid-template-columns: repeat(6, 1fr);
     }
-    
+
     .span-4 { grid-column: span 3; }
     .span-8 { grid-column: span 6; }
     .span-12 { grid-column: span 6; }
