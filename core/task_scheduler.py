@@ -131,6 +131,38 @@ class SchedulerMixin:
         # 与 APScheduler misfire_grace_time 保持一致，允许 60 秒轻微抖动
         return check_time < (next_trigger + 60)
 
+    def _get_max_unanswered_count(
+        self, session_config: dict | None, default: int = 3
+    ) -> int:
+        if not isinstance(session_config, dict):
+            return default
+        schedule_conf = session_config.get("schedule_settings", {})
+        if not isinstance(schedule_conf, dict):
+            return default
+        try:
+            return int(schedule_conf.get("max_unanswered_times", default) or 0)
+        except (TypeError, ValueError):
+            return default
+
+    def _is_unanswered_limit_reached(
+        self,
+        session_id: str,
+        session_config: dict | None,
+        unanswered_count: int | None = None,
+    ) -> bool:
+        max_unanswered = self._get_max_unanswered_count(session_config)
+        if max_unanswered <= 0:
+            return False
+        if unanswered_count is None:
+            try:
+                unanswered_count = int(
+                    self.session_data.get(session_id, {}).get("unanswered_count", 0)
+                    or 0
+                )
+            except (TypeError, ValueError):
+                unanswered_count = 0
+        return unanswered_count >= max_unanswered
+
     def _clear_session_schedule_state(
         self,
         session_id: str,

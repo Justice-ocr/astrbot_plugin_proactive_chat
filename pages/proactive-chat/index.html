@@ -2,219 +2,28 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title>主动消息管理端</title>
-    <style>
-        :root {
-            color-scheme: light dark;
-            font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
-            background: #f6f8fb;
-            color: #172033;
-        }
-        body {
-            margin: 0;
-            min-height: 100vh;
-        }
-        .page-shell {
-            min-height: 100vh;
-            display: grid;
-            grid-template-rows: auto 1fr;
-        }
-        .topbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            padding: 16px 20px;
-            border-bottom: 1px solid rgba(23, 32, 51, 0.1);
-            background: rgba(255, 255, 255, 0.92);
-            backdrop-filter: blur(12px);
-        }
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            min-width: 0;
-        }
-        .logo {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            background: #2563eb;
-            color: white;
-            display: grid;
-            place-items: center;
-            font-weight: 800;
-        }
-        h1 {
-            margin: 0;
-            font-size: 18px;
-            line-height: 1.2;
-        }
-        .subtitle {
-            margin-top: 4px;
-            color: #64748b;
-            font-size: 13px;
-        }
-        .actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-        button,
-        a.button {
-            appearance: none;
-            border: 1px solid rgba(37, 99, 235, 0.18);
-            border-radius: 8px;
-            background: #2563eb;
-            color: #fff;
-            padding: 9px 12px;
-            font-size: 14px;
-            font-weight: 650;
-            text-decoration: none;
-            cursor: pointer;
-        }
-        button.secondary,
-        a.button.secondary {
-            background: #fff;
-            color: #1f2937;
-            border-color: rgba(23, 32, 51, 0.14);
-        }
-        .content {
-            display: grid;
-            grid-template-columns: minmax(280px, 360px) 1fr;
-            min-height: 0;
-        }
-        .panel {
-            border-right: 1px solid rgba(23, 32, 51, 0.1);
-            padding: 18px;
-            background: #fff;
-        }
-        .card {
-            border: 1px solid rgba(23, 32, 51, 0.1);
-            border-radius: 8px;
-            padding: 14px;
-            margin-bottom: 12px;
-            background: #fbfdff;
-        }
-        .label {
-            color: #64748b;
-            font-size: 12px;
-            margin-bottom: 6px;
-        }
-        .value {
-            font-size: 20px;
-            font-weight: 750;
-        }
-        .hint {
-            color: #64748b;
-            font-size: 13px;
-            line-height: 1.6;
-        }
-        .frame-wrap {
-            min-height: 0;
-            background: #edf2f7;
-        }
-        iframe {
-            width: 100%;
-            height: 100%;
-            min-height: calc(100vh - 73px);
-            border: 0;
-            background: #fff;
-        }
-        .notice {
-            padding: 18px;
-            color: #475569;
-            line-height: 1.7;
-        }
-        @media (max-width: 860px) {
-            .topbar {
-                align-items: flex-start;
-                flex-direction: column;
-            }
-            .actions {
-                justify-content: flex-start;
-            }
-            .content {
-                grid-template-columns: 1fr;
-            }
-            .panel {
-                border-right: 0;
-                border-bottom: 1px solid rgba(23, 32, 51, 0.1);
-            }
-            iframe {
-                min-height: 70vh;
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                background: #0f172a;
-                color: #e5e7eb;
-            }
-            .topbar,
-            .panel,
-            .card,
-            button.secondary,
-            a.button.secondary {
-                background: #111827;
-                color: #e5e7eb;
-            }
-            .frame-wrap {
-                background: #020617;
-            }
-            .subtitle,
-            .hint,
-            .label,
-            .notice {
-                color: #94a3b8;
-            }
-        }
-    </style>
+    <link rel="icon" type="image/png" href="./logo.png">
+    <link rel="preload" href="./fonts/outfit.css" as="style">
+    <link href="./fonts/outfit.css" rel="stylesheet">
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="./page-app.css">
 </head>
 <body>
-    <div class="page-shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="logo">主</div>
-                <div>
-                    <h1>主动消息管理端</h1>
-                    <div class="subtitle" id="page-subtitle">正在连接 AstrBot Pages...</div>
-                </div>
-            </div>
-            <div class="actions">
-                <button class="secondary" id="refresh-button" type="button">刷新状态</button>
-                <a class="button" id="open-button" target="_blank" rel="noreferrer">新窗口打开</a>
-            </div>
-        </header>
-        <main class="content">
-            <aside class="panel">
-                <section class="card">
-                    <div class="label">插件状态</div>
-                    <div class="value" id="running-value">--</div>
-                    <div class="hint" id="version-value">版本 --</div>
-                </section>
-                <section class="card">
-                    <div class="label">调度任务</div>
-                    <div class="value" id="jobs-value">--</div>
-                    <div class="hint" id="sessions-value">会话 --</div>
-                </section>
-                <section class="card">
-                    <div class="label">Web 管理端</div>
-                    <div class="value" id="web-value">--</div>
-                    <div class="hint" id="web-hint">等待后端返回入口地址。</div>
-                </section>
-                <p class="hint">
-                    此 Pages 页面复用插件已有 Web 管理端，不复制第二套配置界面。
-                    如果内嵌区域无法显示，请使用“新窗口打开”，或检查 Web 管理端 host/port 配置。
-                </p>
-            </aside>
-            <section class="frame-wrap" id="frame-wrap">
-                <div class="notice">正在加载管理端...</div>
-            </section>
-        </main>
+    <div id="loading-skeleton" class="boot-loader">
+        <div class="boot-loader__logo">
+            <div class="pc-logo-mark" aria-label="主动消息"><span>主</span></div>
+        </div>
+        <div class="boot-loader__title">主动消息管理端</div>
+        <div class="boot-loader__subtitle" id="boot-text">正在初始化 Pages 控制台...</div>
+        <div class="boot-loader__progress">
+            <div class="boot-loader__progress-bar"></div>
+        </div>
     </div>
-    <script src="./page-app.js"></script>
+
+    <div id="root"></div>
+
+    <script src="./page-app.js?v=20260607-timer-counts"></script>
 </body>
 </html>
