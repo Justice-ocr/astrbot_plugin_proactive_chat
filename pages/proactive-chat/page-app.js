@@ -249,6 +249,7 @@
         if (!state.bridge || typeof state.bridge.apiPost !== "function") {
             return Promise.reject(new Error("AstrBot Pages bridge 未注入，请从 AstrBot WebUI 的插件页面重新打开。"));
         }
+        // 保存配置走裸 endpoint，用 received 标记确认命中了本插件的新 Pages 后端。
         return Promise.resolve(state.bridge.apiPost(endpoint, body || {})).then(normalizePayload);
     }
 
@@ -1151,6 +1152,19 @@
         return obj;
     }
 
+    function stripSessionRuntimeKeys(config) {
+        var cleaned = cleanConfig(config || {});
+        if (!cleaned || typeof cleaned !== "object" || Array.isArray(cleaned)) return {};
+        // 会话 effective 配置会带运行时元信息，保存和回读校验都只比较真实配置字段。
+        var copy = {};
+        var keys = objectKeys(cleaned);
+        for (var i = 0; i < keys.length; i += 1) {
+            if (keys[i].charAt(0) === "_") continue;
+            copy[keys[i]] = cleaned[keys[i]];
+        }
+        return copy;
+    }
+
     function openDirectory(path) {
         apiPost(route("open-directory"), { path: path }).then(function (res) {
             window.alert(res.message || "已请求打开目录");
@@ -1335,6 +1349,7 @@
                 notification_settings: cleaned.notification_settings
             };
             setBusy("configSave", true);
+            // 保存后立即回读，避免只更新前端状态而后端实际没有持久化。
             directBridgePost("save_config", payload).then(function (data) {
                 if (!data || data.received !== true) {
                     throw new Error("保存请求没有命中新后端 save_config 接口，请重载插件后再试");
@@ -1396,15 +1411,21 @@
         }
         try {
             syncConfigFromVisibleControls();
-            var payload = { mode: "effective", effective: cleanConfig(state.config || {}) };
+            var effective = stripSessionRuntimeKeys(state.config || {});
+            var payload = { mode: "effective", effective: effective };
             setBusy("sessionSave", true);
             apiPost(route("session-config-save/" + encodeURIComponent(state.selectedSession)), payload).then(function (data) {
-                state.sessionDetail = data || {};
-                state.sessionDetail.effective = payload.effective;
-                state.config = payload.effective;
-                setFeedback("success", "会话差异配置已保存。");
-                setError("");
-                render();
+                return apiGet(route("session-config/" + encodeURIComponent(state.selectedSession))).then(function (serverDetail) {
+                    var serverEffective = stripSessionRuntimeKeys(serverDetail && serverDetail.effective);
+                    if (!sameConfigValue(serverEffective, payload.effective)) {
+                        throw new Error("会话配置保存请求已到后端，但配置回读不一致");
+                    }
+                    state.sessionDetail = serverDetail || data || {};
+                    state.config = state.sessionDetail.effective || payload.effective;
+                    setFeedback("success", "会话差异配置已保存，后端回读校验通过。");
+                    setError("");
+                    render();
+                });
             }).catch(function (err) {
                 setFeedback("error", err.message || "会话配置保存失败");
                 setError(err.message);

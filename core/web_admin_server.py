@@ -248,6 +248,7 @@ class WebAdminServer:
         return False
 
     async def _read_astrbot_page_json(self) -> dict[str, Any]:
+        """Read JSON sent through AstrBot Pages' Quart-based plugin API bridge."""
         if quart_request is None:
             return {}
 
@@ -264,6 +265,7 @@ class WebAdminServer:
         return self._unwrap_page_payload(payload)
 
     def _unwrap_page_payload(self, payload: Any) -> dict[str, Any]:
+        """Unwrap bridge envelopes such as {"body": {...}} without changing normal JSON."""
         if isinstance(payload, str):
             try:
                 payload = json.loads(payload)
@@ -1007,6 +1009,7 @@ class WebAdminServer:
         self.config[key] = value
 
     def _save_plugin_config(self) -> tuple[bool, str | None]:
+        """Persist config through AstrBot's native object and notify newer contexts."""
         try:
             # AstrBot 配置对象通常提供 save_config 方法，这里做鸭子类型兼容。
             native = self._native_config or (
@@ -1064,6 +1067,7 @@ class WebAdminServer:
 
     async def _apply_config_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         payload = self._unwrap_page_payload(payload)
+        # Pages 只能写入 WebUI 暴露的四个顶层配置段，避免误把运行时状态写进主配置。
         allowed_keys = {
             "friend_settings",
             "group_settings",
@@ -1153,6 +1157,7 @@ class WebAdminServer:
         mode = payload.get("mode", "effective")
 
         if mode == "override":
+            # override 模式直接保存差异片段，适合高级用户或后续批量编辑入口。
             override = payload.get("override", {})
             if not isinstance(override, dict):
                 return {"ok": False, "error": "override 必须是对象"}
@@ -1160,6 +1165,7 @@ class WebAdminServer:
                 normalized, override
             )
         else:
+            # effective 模式让前端提交完整会话配置，后端负责计算与全局配置的最小差异。
             effective = payload.get("effective", {})
             if not isinstance(effective, dict):
                 return {"ok": False, "error": "effective 必须是对象"}

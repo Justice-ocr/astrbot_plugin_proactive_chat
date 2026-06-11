@@ -134,6 +134,7 @@ class SchedulerMixin:
     def _get_max_unanswered_count(
         self, session_config: dict | None, default: int = 3
     ) -> int:
+        """Return the configured unanswered limit, treating non-positive values as disabled."""
         if not isinstance(session_config, dict):
             return default
         schedule_conf = session_config.get("schedule_settings", {})
@@ -150,6 +151,7 @@ class SchedulerMixin:
         session_config: dict | None,
         unanswered_count: int | None = None,
     ) -> bool:
+        """Shared guard used by runtime scheduling and Pages task snapshots."""
         max_unanswered = self._get_max_unanswered_count(session_config)
         if max_unanswered <= 0:
             return False
