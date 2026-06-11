@@ -91,12 +91,11 @@ class ProactiveCoreMixin:
 
         if is_private_session:
             session_config = self._get_session_config(session_id)
-            if not session_config:
-                return
-            scheduled_plan = await self._build_next_schedule_plan(
-                session_id,
-                session_config,
-            )
+            if session_config:
+                scheduled_plan = await self._build_next_schedule_plan(
+                    session_id,
+                    session_config,
+                )
 
         async with self.data_lock:
             # 更新未回复计数器

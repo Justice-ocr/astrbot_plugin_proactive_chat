@@ -41,12 +41,13 @@ class EventsMixin:
         if messages:
             extractor = getattr(self, "_extract_platform_message_text", None)
             if callable(extractor):
-                try:
-                    extracted = extractor(messages)
-                    if extracted:
-                        candidates.append(extracted)
-                except Exception:
-                    pass
+                for item in messages:
+                    try:
+                        extracted = extractor(item)
+                        if extracted:
+                            candidates.append(extracted)
+                    except Exception:
+                        pass
             parts: list[str] = []
             for item in messages:
                 text = getattr(item, "text", None)
@@ -84,11 +85,12 @@ class EventsMixin:
         current_time = time.time()
         self.last_message_times[normalized_session_id] = current_time
         last_user_text = self._extract_event_text(event)
-        self.session_temp_state.setdefault(normalized_session_id, {})[
-            "last_user_text"
-        ] = last_user_text
 
         async with self.data_lock:
+            temp_state = self.session_temp_state.setdefault(normalized_session_id, {})
+            temp_state["last_user_text"] = last_user_text
+            temp_state["last_user_time"] = current_time
+
             # 合并旧键数据
             # 将旧键数据迁移到规范化键，保持计数与 self_id 连续
             if normalized_session_id != session_id and session_id in self.session_data:

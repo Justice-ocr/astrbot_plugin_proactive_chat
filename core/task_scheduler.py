@@ -212,6 +212,15 @@ class SchedulerMixin:
     def _normalize_schedule_text(self, text: Any) -> str:
         return " ".join(str(text or "").strip().lower().split())
 
+    def _contains_schedule_marker(self, normalized_text: str, marker: str) -> bool:
+        marker = self._normalize_schedule_text(marker)
+        if not marker:
+            return False
+        if marker.isascii() and any(ch.isalpha() for ch in marker):
+            pattern = rf"(?<![a-z0-9]){re.escape(marker)}(?![a-z0-9])"
+            return re.search(pattern, normalized_text) is not None
+        return marker in normalized_text
+
     def _pick_schedule_jitter(self, minutes_min: int, minutes_max: int) -> int:
         lower = max(1, int(minutes_min)) * 60
         upper = max(lower, int(minutes_max) * 60)
@@ -255,8 +264,14 @@ class SchedulerMixin:
             }
 
         tomorrow_markers = ("明天", "明早", "明日", "tomorrow")
-        if any(marker in normalized for marker in tomorrow_markers):
-            target_hour = 8 if ("明早" in normalized or "morning" in normalized) else 10
+        if any(
+            self._contains_schedule_marker(normalized, marker)
+            for marker in tomorrow_markers
+        ):
+            target_hour = 8 if (
+                "明早" in normalized
+                or self._contains_schedule_marker(normalized, "morning")
+            ) else 10
             seconds = self._seconds_until_next_local_time(
                 target_hour,
                 random.randint(0, 45),
@@ -319,7 +334,10 @@ class SchedulerMixin:
         ]
 
         for rule, markers, minute_range in rules:
-            if any(marker in normalized for marker in markers):
+            if any(
+                self._contains_schedule_marker(normalized, marker)
+                for marker in markers
+            ):
                 seconds = self._pick_schedule_jitter(*minute_range)
                 seconds = self._clamp_schedule_interval(seconds, min_interval, max_interval)
                 return {
@@ -335,13 +353,19 @@ class SchedulerMixin:
         if "半小时" in text or "半个小时" in text:
             return 30
 
-        minute_match = re.search(r"(\d{1,3})\s*(分钟|分|mins?|minutes?)\s*(后|later)?", text)
+        minute_match = re.search(
+            r"(?<![\d.])(\d{1,3})(?![\d.])\s*(分钟|分|mins?|minutes?)\s*(后|later)?",
+            text,
+        )
         if minute_match:
             value = int(minute_match.group(1))
             if 1 <= value <= 1440:
                 return value
 
-        hour_match = re.search(r"(\d{1,2})\s*(个)?\s*(小时|钟头|hours?|hrs?|h)\s*(后|later)?", text)
+        hour_match = re.search(
+            r"(?<![\d.])(\d{1,2})(?![\d.])\s*(个)?\s*(小时|钟头|hours?|hrs?|h)\s*(后|later)?",
+            text,
+        )
         if hour_match:
             value = int(hour_match.group(1))
             if 1 <= value <= 48:
@@ -355,7 +379,11 @@ class SchedulerMixin:
         history_count: int,
     ) -> list[str]:
         texts: list[str] = []
-        temp_state = getattr(self, "session_temp_state", {}).get(session_id, {})
+        async with self.data_lock:
+            raw_temp_state = getattr(self, "session_temp_state", {}).get(session_id, {})
+            temp_state = (
+                dict(raw_temp_state) if isinstance(raw_temp_state, dict) else {}
+            )
         if isinstance(temp_state, dict):
             last_text = temp_state.get("last_user_text")
             if last_text:
