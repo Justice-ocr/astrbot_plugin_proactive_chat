@@ -57,6 +57,7 @@ def _is_running_in_docker() -> bool:
 
 
 class WebAdminServer:
+    ASTRBOT_PLUGIN_NAME = "astrbot_plugin_proactive_chat"
     """主动消息插件 Web 管理端服务器。"""
 
     def __init__(self, plugin: Any):
@@ -100,6 +101,75 @@ class WebAdminServer:
                     "[主动消息] Web 管理端初始化失败喵，已自动禁用，不影响插件主体功能。"
                     f" 可能是 FastAPI / Pydantic 依赖版本不兼容: {e}"
                 )
+
+    def register_astrbot_page_api(self) -> None:
+        """Register the lightweight AstrBot Pages API used by the plugin card."""
+        context = getattr(self.plugin, "context", None)
+        register = getattr(context, "register_web_api", None)
+        if not callable(register):
+            logger.debug(
+                "[主动消息] 当前 AstrBot 版本未提供 register_web_api，跳过 Pages 接口注册喵。"
+            )
+            return
+
+        path = f"/{self.ASTRBOT_PLUGIN_NAME}/dashboard"
+        attempts = (
+            lambda: register(
+                path,
+                self.build_astrbot_page_payload,
+                ["GET"],
+                "Proactive Chat page dashboard",
+            ),
+            lambda: register(
+                path,
+                self.build_astrbot_page_payload,
+                methods=["GET"],
+            ),
+            lambda: register("GET", path, self.build_astrbot_page_payload),
+        )
+        for attempt in attempts:
+            try:
+                attempt()
+                logger.info("[主动消息] 已注册 AstrBot Pages 管理入口接口喵。")
+                return
+            except TypeError:
+                continue
+            except Exception as e:
+                logger.debug(f"[主动消息] 注册 AstrBot Pages 接口失败喵: {e}")
+                return
+
+        logger.debug(
+            "[主动消息] 当前 AstrBot register_web_api 签名不兼容，跳过 Pages 接口注册喵。"
+        )
+
+    def _build_web_admin_url_payload(self) -> dict[str, Any]:
+        web_admin = self.config.get("web_admin", {})
+        host = str(web_admin.get("host", "127.0.0.1") or "127.0.0.1")
+        try:
+            port = int(web_admin.get("port", 4100))
+        except (TypeError, ValueError):
+            port = 4100
+
+        bind_all = host in {"0.0.0.0", "::", ""}
+        display_host = "127.0.0.1" if bind_all else host
+        return {
+            "enabled": bool(web_admin.get("enabled", True)),
+            "available": bool(self._web_admin_available),
+            "running": bool(self.server_task and not self.server_task.done()),
+            "host": host,
+            "port": port,
+            "bind_all": bind_all,
+            "url": f"http://{display_host}:{port}/",
+        }
+
+    async def build_astrbot_page_payload(self) -> dict[str, Any]:
+        """Build a small runtime snapshot for the AstrBot Pages entry."""
+        return {
+            "status": self._build_status_payload(),
+            "jobs": self._collect_jobs(),
+            "sessions": self._list_known_session_summaries(),
+            "web_admin": self._build_web_admin_url_payload(),
+        }
 
     def _setup_app(self) -> None:
         # 创建 FastAPI 应用，版本号用于控制台元信息展示。
