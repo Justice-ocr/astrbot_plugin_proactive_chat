@@ -122,6 +122,7 @@ class WebAdminServer:
         self._token_expire_seconds = 60 * 60 * 24
         # 简单的内存令牌表：token -> 过期时间戳。
         self._tokens: dict[str, float] = {}
+        self._background_tasks: set[asyncio.Task] = set()
         # 仅当配置中设置了密码时才开启鉴权。
         self._auth_enabled = bool(self.config.get("web_admin", {}).get("password", ""))
         # 缓存插件版本，避免在高频状态轮询与广播中重复读取文件。
@@ -151,6 +152,14 @@ class WebAdminServer:
             return unquote(str(umo or ""))
         except Exception:
             return str(umo or "")
+
+    def _track_background_task(self, task: asyncio.Task) -> None:
+        track_task = getattr(self.plugin, "_track_task", None)
+        if callable(track_task):
+            track_task(task)
+            return
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def register_astrbot_page_api(self) -> None:
         """向 AstrBot WebUI 插件 Page 暴露完整管理端接口。"""
@@ -992,7 +1001,7 @@ class WebAdminServer:
             if callable(update_config):
                 updated = update_config(self.config)
                 if inspect.isawaitable(updated):
-                    asyncio.create_task(updated)
+                    self._track_background_task(asyncio.create_task(updated))
             return True, None
         except Exception as e:
             logger.warning(f"[主动消息] 保存配置失败喵: {e}")
@@ -1032,7 +1041,6 @@ class WebAdminServer:
         }
 
     async def _apply_config_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        payload = self._unwrap_page_payload(payload)
         # Pages 只能写入 WebUI 暴露的四个顶层配置段，避免误把运行时状态写进主配置。
         allowed_keys = {
             "friend_settings",
@@ -1195,7 +1203,9 @@ class WebAdminServer:
             }
 
         self.plugin.manual_trigger_sessions.add(normalized)
-        asyncio.create_task(self.plugin.check_and_chat(normalized))
+        self._track_background_task(
+            asyncio.create_task(self.plugin.check_and_chat(normalized))
+        )
         await self._broadcast_update("jobs")
         return {
             "ok": True,

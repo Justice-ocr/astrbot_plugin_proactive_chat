@@ -22,6 +22,7 @@
         theme: safeStorageGet("theme") || "light",
         busy: {},
         realtimeTimer: null,
+        loadingSnapshot: false,
         lastRealtimeAt: 0
     };
 
@@ -1056,20 +1057,24 @@
 
     function loadRealtimeSnapshot() {
         if (!state.bridgeReady || !state.bridge) return;
+        if (state.loadingSnapshot) return;
         if (document.visibilityState === "hidden") return;
         if (state.busy.configSave || state.busy.sessionSave) return;
         if (state.view === "config") return;
+        state.loadingSnapshot = true;
         apiGet(route("dashboard")).then(function (data) {
             applyDashboardPayload(data);
             if (state.view === "status" || state.view === "tasks") render();
         }).catch(function () {
-            Promise.all([apiGet(route("status")), apiGet(route("jobs")), apiGet(route("session-config/sessions"))]).then(function (parts) {
+            return Promise.all([apiGet(route("status")), apiGet(route("jobs")), apiGet(route("session-config/sessions"))]).then(function (parts) {
                 state.status = parts[0] || state.status || {};
                 state.jobs = asArray(parts[1].jobs || parts[1]);
                 state.sessions = asArray(parts[2].sessions || parts[2]);
                 state.lastRealtimeAt = Date.now();
                 if (state.view === "status" || state.view === "tasks") render();
             }).catch(function () {});
+        }).finally(function () {
+            state.loadingSnapshot = false;
         });
     }
 

@@ -156,12 +156,15 @@ class SchedulerMixin:
         if max_unanswered <= 0:
             return False
         if unanswered_count is None:
-            try:
-                unanswered_count = int(
-                    self.session_data.get(session_id, {}).get("unanswered_count", 0)
-                    or 0
-                )
-            except (TypeError, ValueError):
+            session_info = self.session_data.get(session_id)
+            if isinstance(session_info, dict):
+                try:
+                    unanswered_count = int(
+                        session_info.get("unanswered_count", 0) or 0
+                    )
+                except (TypeError, ValueError):
+                    unanswered_count = 0
+            else:
                 unanswered_count = 0
         return unanswered_count >= max_unanswered
 
