@@ -199,7 +199,6 @@ class WebAdminServer:
             ("notifications/refresh", self._page_refresh_notifications, ["POST"]),
             ("markdown-files", self._page_list_markdown_files, ["GET"]),
             ("markdown-files/<path:file_path>", self._page_get_markdown_file, ["GET"]),
-            ("open-directory", self._page_open_directory, ["POST"]),
         )
 
         registered_count = 0
@@ -384,10 +383,6 @@ class WebAdminServer:
 
     async def _page_get_markdown_file(self, file_path: str):
         return await self._build_markdown_file_payload(file_path)
-
-    async def _page_open_directory(self):
-        payload = await self._read_astrbot_page_json()
-        return await self._open_directory_payload(payload)
 
     def _setup_app(self) -> None:
         _patch_starlette_router_startup_kwargs()

@@ -297,10 +297,6 @@
             '<div><div class="pc-brand-title">主动消息</div><div class="pc-brand-subtitle">Admin Console</div></div>',
             '</div>',
             '<nav class="pc-nav">', navButton("status"), navButton("tasks"), navButton("notifications"), navButton("docs"), navButton("config"), '</nav>',
-            '<div class="pc-sidebar-actions">',
-            '<button class="pc-button secondary" data-action="open-dir" data-path="plugin">📂 打开插件文件目录</button>',
-            '<button class="pc-button secondary" data-action="open-dir" data-path="data">🗃️ 打开插件数据目录</button>',
-            '</div>',
             '<a class="pc-github-card" href="', PLUGIN_REPO, '" target="_blank" rel="noopener noreferrer">',
             '<div class="pc-github-author">@DBJD-CR</div>',
             '<div class="pc-github-title">🔧 (主动消息) ... 点个 Star 吧~ ⭐</div>',
@@ -362,7 +358,6 @@
     function handleAction(action, node) {
         if (action === "refresh") loadCurrentView();
         if (action === "theme") toggleTheme();
-        if (action === "open-dir") openDirectory(node.getAttribute("data-path"));
         if (action === "trigger-job") triggerJob(node.getAttribute("data-id"));
         if (action === "reschedule-job") rescheduleJob(node.getAttribute("data-id"));
         if (action === "cancel-job") cancelJob(node.getAttribute("data-id"));
@@ -1163,14 +1158,6 @@
             copy[keys[i]] = cleaned[keys[i]];
         }
         return copy;
-    }
-
-    function openDirectory(path) {
-        apiPost(route("open-directory"), { path: path }).then(function (res) {
-            window.alert(res.message || "已请求打开目录");
-        }).catch(function (err) {
-            window.alert(err.message || "打开目录失败");
-        });
     }
 
     function loadDashboard() {
