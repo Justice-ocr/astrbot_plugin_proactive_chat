@@ -10,8 +10,6 @@
         status: {},
         jobs: [],
         sessions: [],
-        notifications: [],
-        notificationsMeta: {},
         config: null,
         configSchema: null,
         configMode: "global",
@@ -21,9 +19,6 @@
         sessionConfigState: { baseAvailable: true, message: "" },
         selectedSession: "",
         sessionDetail: null,
-        markdownFiles: [],
-        selectedMarkdownPath: "",
-        markdownDocument: null,
         theme: safeStorageGet("theme") || "light",
         busy: {},
         realtimeTimer: null,
@@ -33,8 +28,6 @@
     var viewMeta = {
         status: { label: "运行状态", icon: "📊", subtitle: "服务状态、调度概览与会话计时器" },
         tasks: { label: "任务管理", icon: "📋", subtitle: "查看、立即触发、重新调度或取消会话任务" },
-        notifications: { label: "通知中心", icon: "🔔", subtitle: "同步插件通知、标记已读与快速刷新" },
-        docs: { label: "文档浏览", icon: "📚", subtitle: "浏览 README、CHANGELOG 与 docs 目录文档" },
         config: { label: "配置管理", icon: "⚙️", subtitle: "编辑全局配置与会话差异配置" }
     };
 
@@ -296,7 +289,7 @@
             '<div class="pc-logo-mark" aria-label="主动消息"><span>主</span></div>',
             '<div><div class="pc-brand-title">主动消息</div><div class="pc-brand-subtitle">Admin Console</div></div>',
             '</div>',
-            '<nav class="pc-nav">', navButton("status"), navButton("tasks"), navButton("notifications"), navButton("docs"), navButton("config"), '</nav>',
+            '<nav class="pc-nav">', navButton("status"), navButton("tasks"), navButton("config"), '</nav>',
             '<a class="pc-github-card" href="', PLUGIN_REPO, '" target="_blank" rel="noopener noreferrer">',
             '<div class="pc-github-author">@DBJD-CR</div>',
             '<div class="pc-github-title">🔧 (主动消息) ... 点个 Star 吧~ ⭐</div>',
@@ -308,8 +301,6 @@
             '<div id="pc-error"></div>',
             '<section id="view-status" class="pc-section"></section>',
             '<section id="view-tasks" class="pc-section"></section>',
-            '<section id="view-notifications" class="pc-section"></section>',
-            '<section id="view-docs" class="pc-section"></section>',
             '<section id="view-config" class="pc-section"></section>',
             '</div>',
             '</main>',
@@ -340,10 +331,6 @@
                 state.expandedKeys = [];
                 loadSessionDetail(state.selectedSession);
             }
-            if (event.target && event.target.id === "doc-select") {
-                state.selectedMarkdownPath = event.target.value;
-                loadMarkdownDocument(state.selectedMarkdownPath);
-            }
             if (event.target && event.target.getAttribute("data-config-path")) {
                 updateConfigFromControl(event.target, true);
             }
@@ -361,9 +348,6 @@
         if (action === "trigger-job") triggerJob(node.getAttribute("data-id"));
         if (action === "reschedule-job") rescheduleJob(node.getAttribute("data-id"));
         if (action === "cancel-job") cancelJob(node.getAttribute("data-id"));
-        if (action === "read-notification") readNotification(node.getAttribute("data-id"));
-        if (action === "read-all-notifications") readAllNotifications();
-        if (action === "refresh-notifications") refreshNotifications();
         if (action === "save-config") saveConfig();
         if (action === "load-config") loadConfig();
         if (action === "save-session") saveSessionConfig();
@@ -385,8 +369,6 @@
     function loadCurrentView() {
         if (state.view === "status") loadDashboard();
         if (state.view === "tasks") loadJobs();
-        if (state.view === "notifications") loadNotifications();
-        if (state.view === "docs") loadMarkdownFiles();
         if (state.view === "config") loadConfig();
     }
 
@@ -417,7 +399,7 @@
         initTheme();
         renderHeader();
         renderError();
-        var keys = ["status", "tasks", "notifications", "docs", "config"];
+        var keys = ["status", "tasks", "config"];
         for (var i = 0; i < keys.length; i += 1) {
             var section = $("view-" + keys[i]);
             if (section) section.classList.toggle("is-active", state.view === keys[i]);
@@ -428,8 +410,6 @@
         }
         renderStatus();
         renderTasks();
-        renderNotifications();
-        renderDocs();
         renderConfig();
     }
 
@@ -678,122 +658,6 @@
         }
         html.push('</div></div>');
         $("view-tasks").innerHTML = html.join("");
-    }
-
-    function renderNotifications() {
-        var items = state.notifications || [];
-        var meta = state.notificationsMeta || {};
-        var html = ['<div class="pc-card"><div class="pc-card-header"><div><div class="pc-card-title">通知中心</div><div class="pc-card-subtitle">未读 ', Number(meta.unread_count || 0), ' / 总数 ', Number(meta.total_count || items.length || 0), '</div></div><div class="pc-row-actions"><button class="pc-button secondary" data-action="refresh-notifications">同步</button><button class="pc-button ghost" data-action="read-all-notifications">全部已读</button></div></div>'];
-        if (!items.length) {
-            html.push('<div class="pc-empty">暂无通知</div></div>');
-            $("view-notifications").innerHTML = html.join("");
-            return;
-        }
-        html.push('<div class="pc-list">');
-        for (var i = 0; i < items.length; i += 1) {
-            var item = items[i] || {};
-            var id = item.id == null ? "" : String(item.id);
-            html.push('<div class="pc-row">');
-            html.push('<div class="pc-row-title">', escapeHtml(item.title || item.type || "通知"), '</div>');
-            html.push('<div class="pc-row-meta">', escapeHtml(item.level || item.severity || "info"), ' · ', escapeHtml(formatDate(item.created_at || item.timestamp || item.time)), '</div>');
-            html.push('<div class="pc-row-meta">', escapeHtml(item.content || item.message || item.text || ""), '</div>');
-            if (id) html.push('<div><button class="pc-button secondary" data-action="read-notification" data-id="', escapeHtml(id), '">标记已读</button></div>');
-            html.push('</div>');
-        }
-        html.push('</div></div>');
-        $("view-notifications").innerHTML = html.join("");
-    }
-
-    function renderDocs() {
-        var files = state.markdownFiles || [];
-        var doc = state.markdownDocument || {};
-        var options = [];
-        for (var i = 0; i < files.length; i += 1) {
-            var file = files[i] || {};
-            var selected = file.path === state.selectedMarkdownPath ? " selected" : "";
-            options.push('<option value="' + escapeHtml(file.path) + '"' + selected + '>' + escapeHtml((file.title || file.filename || file.path) + " · " + file.path) + '</option>');
-        }
-        $("view-docs").innerHTML = [
-            '<div class="pc-doc-layout">',
-            '<div class="pc-card"><div class="pc-card-title">文档目录</div><div class="pc-card-subtitle">选择要浏览的 Markdown 文档</div>',
-            '<select class="pc-select" id="doc-select" style="margin-top:14px">', options.join(""), '</select>',
-            '<div class="pc-footer-note">目录来自插件根目录与 docs 文件夹。</div></div>',
-            '<div class="pc-card pc-doc-body">',
-            doc.content ? renderMarkdown(doc.content) : '<div class="pc-empty">请选择或刷新文档</div>',
-            '</div>',
-            '</div>'
-        ].join("");
-    }
-
-    function renderMarkdown(markdown) {
-        var source = String(markdown || "").replace(/\r\n/g, "\n");
-        var blocks = source.split(/\n{2,}/);
-        var out = [];
-
-        function inline(value) {
-            return escapeHtml(value)
-                .replace(/`([^`]+)`/g, "<code>$1</code>")
-                .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-                .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-        }
-
-        function renderTable(block) {
-            var rows = block.split("\n");
-            if (rows.length < 2 || rows[0].indexOf("|") < 0 || !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(rows[1])) return "";
-            var headers = rows[0].split("|").map(function (cell) { return cell.trim(); }).filter(Boolean);
-            var body = rows.slice(2);
-            var html = ['<div class="pc-table-wrap"><table><thead><tr>'];
-            for (var h = 0; h < headers.length; h += 1) html.push("<th>", inline(headers[h]), "</th>");
-            html.push("</tr></thead><tbody>");
-            for (var r = 0; r < body.length; r += 1) {
-                if (!body[r].trim()) continue;
-                var cells = body[r].split("|").map(function (cell) { return cell.trim(); }).filter(function (cell, idx, arr) {
-                    return !(idx === 0 && cell === "") && !(idx === arr.length - 1 && cell === "");
-                });
-                html.push("<tr>");
-                for (var c = 0; c < headers.length; c += 1) html.push("<td>", inline(cells[c] || ""), "</td>");
-                html.push("</tr>");
-            }
-            html.push("</tbody></table></div>");
-            return html.join("");
-        }
-
-        for (var i = 0; i < blocks.length; i += 1) {
-            var block = blocks[i];
-            var table = renderTable(block);
-            if (table) {
-                out.push(table);
-                continue;
-            }
-            var fence = block.match(/^```([\w-]*)\n([\s\S]*?)```$/);
-            if (fence) {
-                out.push('<pre><code data-language="' + escapeHtml(fence[1] || "text") + '">' + escapeHtml(fence[2]) + "</code></pre>");
-                continue;
-            }
-            if (/^###\s+/.test(block)) {
-                out.push("<h3>" + inline(block.replace(/^###\s+/, "")) + "</h3>");
-                continue;
-            }
-            if (/^##\s+/.test(block)) {
-                out.push("<h2>" + inline(block.replace(/^##\s+/, "")) + "</h2>");
-                continue;
-            }
-            if (/^#\s+/.test(block)) {
-                out.push("<h1>" + inline(block.replace(/^#\s+/, "")) + "</h1>");
-                continue;
-            }
-            if (/^\s*[-*]\s+/m.test(block)) {
-                var items = block.split("\n").filter(Boolean);
-                out.push("<ul>" + items.map(function (line) { return "<li>" + inline(line.replace(/^\s*[-*]\s+/, "")) + "</li>"; }).join("") + "</ul>");
-                continue;
-            }
-            if (/^\s*>\s+/m.test(block)) {
-                out.push("<blockquote>" + inline(block.replace(/^\s*>\s?/gm, "")).replace(/\n/g, "<br>") + "</blockquote>");
-                continue;
-            }
-            out.push("<p>" + inline(block).replace(/\n/g, "<br>") + "</p>");
-        }
-        return out.join("");
     }
 
     function detectSessionType(sessionId) {
@@ -1187,7 +1051,6 @@
         state.status = data.status || state.status || {};
         state.jobs = asArray(data.jobs);
         state.sessions = asArray(data.sessions);
-        state.notificationsMeta = data.notifications_meta || state.notificationsMeta || {};
         state.lastRealtimeAt = Date.now();
     }
 
@@ -1195,7 +1058,7 @@
         if (!state.bridgeReady || !state.bridge) return;
         if (document.visibilityState === "hidden") return;
         if (state.busy.configSave || state.busy.sessionSave) return;
-        if (state.view === "config" || state.view === "docs") return;
+        if (state.view === "config") return;
         apiGet(route("dashboard")).then(function (data) {
             applyDashboardPayload(data);
             if (state.view === "status" || state.view === "tasks") render();
@@ -1238,58 +1101,6 @@
     function cancelJob(id) {
         if (!id) return;
         apiPost(route("jobs-cancel/" + encodeURIComponent(id)), {}).then(loadJobs).catch(function (err) { setError(err.message); });
-    }
-
-    function loadNotifications() {
-        apiGet(route("notifications")).then(function (data) {
-            state.notifications = asArray(data.items || data.notifications || data);
-            state.notificationsMeta = data.meta || state.notificationsMeta || {};
-            setError("");
-            render();
-        }).catch(function (err) {
-            setError(err.message || "加载通知失败");
-        });
-    }
-
-    function readNotification(id) {
-        apiPost(route("notifications/read"), { id: id }).then(loadNotifications).catch(function (err) { setError(err.message); });
-    }
-
-    function readAllNotifications() {
-        apiPost(route("notifications/read-all"), {}).then(loadNotifications).catch(function (err) { setError(err.message); });
-    }
-
-    function refreshNotifications() {
-        apiPost(route("notifications/refresh"), {}).then(loadNotifications).catch(function (err) { setError(err.message); });
-    }
-
-    function loadMarkdownFiles() {
-        apiGet(route("markdown-files")).then(function (data) {
-            state.markdownFiles = asArray(data.items || data.files || data);
-            if (!state.selectedMarkdownPath && state.markdownFiles.length) {
-                state.selectedMarkdownPath = state.markdownFiles[0].path;
-                loadMarkdownDocument(state.selectedMarkdownPath);
-            }
-            setError("");
-            render();
-        }).catch(function (err) {
-            setError(err.message || "加载文档目录失败");
-        });
-    }
-
-    function loadMarkdownDocument(path) {
-        if (!path) {
-            state.markdownDocument = null;
-            render();
-            return;
-        }
-        apiGet(route("markdown-files/" + encodeURIComponent(path))).then(function (data) {
-            state.markdownDocument = data || {};
-            setError("");
-            render();
-        }).catch(function (err) {
-            setError(err.message || "加载文档失败");
-        });
     }
 
     function loadConfig() {

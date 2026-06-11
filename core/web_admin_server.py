@@ -189,16 +189,6 @@ class WebAdminServer:
             ("jobs/<path:umo>/reschedule", self._page_reschedule_job, ["POST"]),
             ("jobs/<path:umo>/trigger", self._page_trigger_job, ["POST"]),
             ("jobs-cancel/<path:umo>", self._page_cancel_job, ["POST"]),
-            ("notifications", self._page_get_notifications, ["GET"]),
-            ("notifications/read", self._page_mark_notification_read, ["POST"]),
-            (
-                "notifications/read-all",
-                self._page_mark_all_notifications_read,
-                ["POST"],
-            ),
-            ("notifications/refresh", self._page_refresh_notifications, ["POST"]),
-            ("markdown-files", self._page_list_markdown_files, ["GET"]),
-            ("markdown-files/<path:file_path>", self._page_get_markdown_file, ["GET"]),
         )
 
         registered_count = 0
@@ -364,25 +354,6 @@ class WebAdminServer:
 
     async def _page_cancel_job(self, umo: str):
         return await self._cancel_job_payload(umo)
-
-    async def _page_get_notifications(self):
-        return await self._build_notification_payload()
-
-    async def _page_mark_notification_read(self):
-        payload = await self._read_astrbot_page_json()
-        return await self._mark_notification_read_payload(payload)
-
-    async def _page_mark_all_notifications_read(self):
-        return await self._mark_all_notifications_read_payload()
-
-    async def _page_refresh_notifications(self):
-        return await self._refresh_notifications_payload()
-
-    async def _page_list_markdown_files(self):
-        return {"items": self._list_markdown_documents()}
-
-    async def _page_get_markdown_file(self, file_path: str):
-        return await self._build_markdown_file_payload(file_path)
 
     def _setup_app(self) -> None:
         _patch_starlette_router_startup_kwargs()
@@ -1742,13 +1713,11 @@ class WebAdminServer:
 
     async def build_astrbot_page_payload(self) -> dict[str, Any]:
         """构造 AstrBot 插件卡片 Page 的轻量运行快照。"""
-        notifications = await self._build_notification_payload()
         return {
             "ok": True,
             "status": self._build_status_payload(),
             "jobs": self._collect_jobs(),
             "sessions": self._list_known_session_summaries(),
-            "notifications_meta": notifications.get("meta", {}),
             "web_admin": {
                 "available": bool(self._web_admin_available and self.app),
                 "enabled": bool(self.config.get("web_admin", {}).get("enabled", False)),
