@@ -481,7 +481,6 @@
         var fallbackSessions = {};
         var fallback = [];
         var jobs = asArray(state.jobs);
-        var sessions = asArray(state.sessions);
 
         function cardSessionId(card) {
             return String(card && (card.session_id || card.session || card.id) || "");
@@ -544,7 +543,6 @@
         }
 
         for (var j = 0; j < jobs.length; j += 1) pushFallback(jobs[j], "scheduled_job");
-        for (var s = 0; s < sessions.length; s += 1) pushFallback(sessions[s], "session_next_trigger");
         fallback.sort(function (left, right) {
             return Number(left.remaining_seconds || 0) - Number(right.remaining_seconds || 0);
         });

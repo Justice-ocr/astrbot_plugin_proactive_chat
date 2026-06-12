@@ -889,9 +889,9 @@ class WebAdminServer:
 
             async with self.plugin.data_lock:
                 if normalized in self.plugin.session_data:
-                    # 同步清理持久化数据中的 next_trigger_time，避免界面显示过期信息。
-                    self.plugin.session_data[normalized].pop("next_trigger_time", None)
-                    await self.plugin._save_data_internal()
+                    # 同步清理持久化调度字段，避免界面显示过期倒计时。
+                    if self.plugin._clear_session_schedule_state(normalized):
+                        await self.plugin._save_data_internal()
 
             if removed:
                 logger.info(
@@ -1225,8 +1225,8 @@ class WebAdminServer:
 
         async with self.plugin.data_lock:
             if normalized in self.plugin.session_data:
-                self.plugin.session_data[normalized].pop("next_trigger_time", None)
-                await self.plugin._save_data_internal()
+                if self.plugin._clear_session_schedule_state(normalized):
+                    await self.plugin._save_data_internal()
 
         await self._broadcast_update("jobs")
         return {"ok": True, "session": normalized, "removed": removed}
@@ -1678,6 +1678,7 @@ class WebAdminServer:
         now = time.time()
         uptime_sec = max(0, int(now - self.plugin.plugin_start_time))
         timer_cards = self._collect_timer_cards(now)
+        visible_jobs_count = len(self._collect_jobs())
 
         return {
             "running": True,
@@ -1698,9 +1699,7 @@ class WebAdminServer:
             "sessions_count": len(self.plugin.session_data),
             "auto_trigger_timers": len(self.plugin.auto_trigger_timers),
             "group_timers": len(self.plugin.group_timers),
-            "jobs_count": len(self.plugin.scheduler.get_jobs())
-            if self.plugin.scheduler
-            else 0,
+            "jobs_count": visible_jobs_count,
             # 计时器总数在前端可直接用于角标和标题，无需再做两次求和。
             "timer_cards_total": len(timer_cards["auto_trigger_cards"])
             + len(timer_cards["group_timer_cards"]),
@@ -1749,7 +1748,6 @@ class WebAdminServer:
             session_config = self.plugin._get_session_config(session_id) or {}
             schedule_settings = session_config.get("schedule_settings", {})
             context_settings = session_config.get("context_settings", {})
-            auto_trigger_settings = session_config.get("auto_trigger_settings", {})
             unanswered_count = session_data.get("unanswered_count", 0)
             if self.plugin._is_unanswered_limit_reached(
                 normalized_session_id, session_config, unanswered_count
@@ -1770,9 +1768,8 @@ class WebAdminServer:
                     "source_mode": context_settings.get(
                         "source_mode", "conversation_history"
                     ),
-                    "max_unanswered_times": schedule_settings.get(
-                        "max_unanswered_times",
-                        auto_trigger_settings.get("max_unanswered_times", 0),
+                    "max_unanswered_times": self.plugin._get_max_unanswered_count(
+                        session_config
                     ),
                     # APScheduler 的 next_run_time 是 datetime，这里统一序列化为 ISO 字符串。
                     "next_run_time": (
@@ -1824,7 +1821,6 @@ class WebAdminServer:
             )
             schedule_settings = session_config.get("schedule_settings", {})
             context_settings = session_config.get("context_settings", {})
-            auto_trigger_settings = session_config.get("auto_trigger_settings", {})
             unanswered_count = session_data.get("unanswered_count", 0)
             if self.plugin._is_unanswered_limit_reached(
                 normalized_session_id, session_config, unanswered_count
@@ -1858,9 +1854,8 @@ class WebAdminServer:
                     "source_mode": context_settings.get(
                         "source_mode", "conversation_history"
                     ),
-                    "max_unanswered_times": schedule_settings.get(
-                        "max_unanswered_times",
-                        auto_trigger_settings.get("max_unanswered_times", 0),
+                    "max_unanswered_times": self.plugin._get_max_unanswered_count(
+                        session_config
                     ),
                     "next_run_time": next_run_time,
                     "unanswered_count": unanswered_count,
@@ -1939,6 +1934,9 @@ class WebAdminServer:
                     ),
                     "unanswered_count": self.plugin.session_data.get(session, {}).get(
                         "unanswered_count", 0
+                    ),
+                    "max_unanswered_times": self.plugin._get_max_unanswered_count(
+                        effective
                     ),
                     "manual_trigger_in_progress": session
                     in self.plugin.manual_trigger_sessions,
