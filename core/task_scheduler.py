@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import re
 import time
@@ -207,7 +208,19 @@ class SchedulerMixin:
             history_count = 8
         history_count = max(1, min(history_count, 30))
 
-        return {"enabled": enabled, "history_count": history_count}
+        try:
+            llm_timeout_seconds = int(
+                schedule_conf.get("contextual_timing_llm_timeout_seconds", 15)
+            )
+        except Exception:
+            llm_timeout_seconds = 15
+        llm_timeout_seconds = max(3, min(llm_timeout_seconds, 60))
+
+        return {
+            "enabled": enabled,
+            "history_count": history_count,
+            "llm_timeout_seconds": llm_timeout_seconds,
+        }
 
     def _normalize_schedule_text(self, text: Any) -> str:
         return " ".join(str(text or "").strip().lower().split())
@@ -240,6 +253,177 @@ class SchedulerMixin:
         if target.timestamp() <= now.timestamp():
             target = target + timedelta(days=1)
         return max(60, int(target.timestamp() - now.timestamp()))
+
+    def _build_contextual_schedule_prompt(
+        self,
+        texts: list[str],
+        min_interval: int,
+        max_interval: int,
+    ) -> str:
+        min_minutes = max(1, int(min_interval // 60))
+        max_minutes = max(min_minutes, int(max_interval // 60))
+        now_text = datetime.now(self.timezone).strftime("%Y-%m-%d %H:%M:%S")
+        recent_lines = []
+        for index, text in enumerate(texts[:12], start=1):
+            cleaned = " ".join(str(text or "").split())
+            if len(cleaned) > 500:
+                cleaned = cleaned[:500] + "..."
+            recent_lines.append(f"{index}. {cleaned}")
+
+        return (
+            "你正在为主动消息插件判断下一次主动开口的时间。\n"
+            "请只根据最近用户侧消息判断：用户是否表达了明确的稍后、忙碌、休息、睡觉、明天、会议、通勤、吃饭、看电影等时间语境。\n"
+            "如果没有明确时间语境，请把 delay_minutes 设为 null。\n"
+            f"当前本地时间：{now_text}\n"
+            f"允许的触发间隔范围：{min_minutes} 到 {max_minutes} 分钟。\n"
+            "输出必须是严格 JSON，不要 Markdown，不要解释。格式：\n"
+            '{"delay_minutes": 120, "reason": "用户表示稍后再聊", "confidence": 0.75}\n'
+            '或 {"delay_minutes": null, "reason": "没有明确时间语境", "confidence": 0}\n'
+            "delay_minutes 必须在允许范围内；confidence 为 0 到 1。\n"
+            "最近用户侧消息：\n"
+            + "\n".join(recent_lines)
+        )
+
+    def _extract_contextual_schedule_json(self, response_text: str) -> dict | None:
+        text = str(response_text or "").strip()
+        if not text:
+            return None
+
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S | re.I)
+        if fence_match:
+            text = fence_match.group(1).strip()
+        elif "{" in text and "}" in text:
+            text = text[text.find("{") : text.rfind("}") + 1]
+
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _parse_contextual_schedule_llm_result(
+        self,
+        response_text: str,
+        min_interval: int,
+        max_interval: int,
+    ) -> dict[str, Any] | None:
+        parsed = self._extract_contextual_schedule_json(response_text)
+        if not parsed:
+            return None
+
+        delay_minutes = parsed.get("delay_minutes")
+        if delay_minutes in (None, "", False):
+            return None
+
+        try:
+            delay_seconds = float(delay_minutes) * 60
+        except Exception:
+            return None
+
+        try:
+            confidence = float(parsed.get("confidence", 0))
+        except Exception:
+            confidence = 0
+        if confidence <= 0:
+            return None
+
+        reason = str(parsed.get("reason") or "llm_context").strip()
+        if len(reason) > 80:
+            reason = reason[:80]
+
+        return {
+            "interval_seconds": self._clamp_schedule_interval(
+                delay_seconds,
+                min_interval,
+                max_interval,
+            ),
+            "strategy": "contextual",
+            "rule": "llm_context",
+            "reason": f"context:llm:{reason}",
+        }
+
+    async def _predict_contextual_interval_with_llm(
+        self,
+        session_id: str,
+        texts: list[str],
+        min_interval: int,
+        max_interval: int,
+        timeout_seconds: int,
+    ) -> dict[str, Any] | None:
+        if not texts:
+            return None
+
+        context = getattr(self, "context", None)
+        if context is None:
+            return None
+
+        prompt = self._build_contextual_schedule_prompt(
+            texts,
+            min_interval,
+            max_interval,
+        )
+        system_prompt = (
+            "你是主动消息插件的调度判断器，只输出可被 json.loads 解析的 JSON。"
+        )
+
+        async def _call_llm() -> str | None:
+            llm_response_obj = None
+            try:
+                provider_id = await context.get_current_chat_provider_id(session_id)
+                llm_response_obj = await context.llm_generate(
+                    chat_provider_id=provider_id,
+                    prompt=prompt,
+                    contexts=[],
+                    system_prompt=system_prompt,
+                )
+            except Exception as new_api_error:
+                logger.debug(
+                    f"[主动消息] 语境调度 LLM 新接口失败，尝试传统接口喵: {new_api_error}"
+                )
+                try:
+                    provider = context.get_using_provider(umo=session_id)
+                    if provider:
+                        llm_response_obj = await provider.text_chat(
+                            prompt=prompt,
+                            contexts=[],
+                            system_prompt=system_prompt,
+                        )
+                except Exception as fallback_error:
+                    logger.debug(
+                        f"[主动消息] 语境调度 LLM 传统接口也失败喵: {fallback_error}"
+                    )
+                    return None
+
+            completion_text = getattr(llm_response_obj, "completion_text", None)
+            if not completion_text:
+                return None
+            return str(completion_text).strip()
+
+        try:
+            response_text = await asyncio.wait_for(
+                _call_llm(),
+                timeout=max(3, int(timeout_seconds)),
+            )
+        except asyncio.TimeoutError:
+            logger.debug("[主动消息] 语境调度 LLM 判断超时，回退到规则判断喵。")
+            return None
+        except Exception as e:
+            logger.debug(f"[主动消息] 语境调度 LLM 判断失败，回退到规则判断喵: {e}")
+            return None
+
+        if not response_text:
+            return None
+
+        prediction = self._parse_contextual_schedule_llm_result(
+            response_text,
+            min_interval,
+            max_interval,
+        )
+        if prediction:
+            logger.debug(
+                f"[主动消息] 语境调度 LLM 命中喵: {prediction.get('reason', '')}"
+            )
+        return prediction
 
     def _predict_contextual_interval_from_text(
         self,
@@ -450,16 +634,27 @@ class SchedulerMixin:
                 session_id,
                 contextual["history_count"],
             )
-            for item in texts:
-                prediction = self._predict_contextual_interval_from_text(
-                    item,
-                    min_interval,
-                    max_interval,
-                )
-                if prediction:
-                    plan.update(prediction)
-                    plan["source"] = "recent_context"
-                    break
+            llm_prediction = await self._predict_contextual_interval_with_llm(
+                session_id,
+                texts,
+                min_interval,
+                max_interval,
+                contextual["llm_timeout_seconds"],
+            )
+            if llm_prediction:
+                plan.update(llm_prediction)
+                plan["source"] = "llm_context"
+            else:
+                for item in texts:
+                    prediction = self._predict_contextual_interval_from_text(
+                        item,
+                        min_interval,
+                        max_interval,
+                    )
+                    if prediction:
+                        plan.update(prediction)
+                        plan["source"] = "recent_context_fallback"
+                        break
 
         scheduled_at = time.time()
         next_trigger_time = scheduled_at + int(plan["interval_seconds"])
