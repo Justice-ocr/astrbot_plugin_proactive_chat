@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
 from typing import Any
 
 from astrbot.api import logger
@@ -88,14 +87,21 @@ class ProactiveCoreMixin:
         session_config = None
         scheduled_job_payload = None
         scheduled_plan = None
+        limit_reached_after_send = False
 
         if is_private_session:
             session_config = self._get_session_config(session_id)
             if session_config:
-                scheduled_plan = await self._build_next_schedule_plan(
-                    session_id,
-                    session_config,
-                )
+                next_unanswered_count = unanswered_count + 1
+                if self._is_unanswered_limit_reached(
+                    session_id, session_config, next_unanswered_count
+                ):
+                    limit_reached_after_send = True
+                else:
+                    scheduled_plan = await self._build_next_schedule_plan(
+                        session_id,
+                        session_config,
+                    )
 
         async with self.data_lock:
             # 更新未回复计数器
@@ -108,15 +114,25 @@ class ProactiveCoreMixin:
                 f"[主动消息] {self._get_session_log_str(session_id)} 的第 {new_unanswered_count} 次主动消息已发送完成，当前未回复次数: {new_unanswered_count} 次喵。"
             )
 
-            if is_private_session and scheduled_plan:
-                session_payload = self.session_data.setdefault(session_id, {})
-                self._write_schedule_plan_to_session(session_payload, scheduled_plan)
-                scheduled_job_payload = {
-                    "run_date": scheduled_plan["run_date"],
-                    "session_config": session_config,
-                }
+            if is_private_session:
+                if session_config and limit_reached_after_send:
+                    self._clear_session_schedule_state(session_id)
+                    logger.info(
+                        f"[主动消息] {self._get_session_log_str(session_id, session_config)} 的未回复次数已达到上限，停止安排下一次主动消息喵。"
+                    )
+                elif session_config and scheduled_plan:
+                    session_payload = self.session_data.setdefault(session_id, {})
+                    self._write_schedule_plan_to_session(session_payload, scheduled_plan)
+                    scheduled_job_payload = {
+                        "run_date": scheduled_plan["run_date"],
+                        "session_config": session_config,
+                    }
 
             await self._save_data_internal()
+
+        if limit_reached_after_send:
+            self._purge_related_jobs(session_id)
+            return
 
         if scheduled_job_payload is not None:
             self.scheduler.add_job(

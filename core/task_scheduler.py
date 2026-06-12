@@ -133,6 +133,43 @@ class SchedulerMixin:
         # 与 APScheduler misfire_grace_time 保持一致，允许 60 秒轻微抖动
         return check_time < (next_trigger + 60)
 
+    def _get_max_unanswered_count(
+        self, session_config: dict | None, default: int = 3
+    ) -> int:
+        """Return the configured unanswered limit, treating non-positive values as disabled."""
+        if not isinstance(session_config, dict):
+            return default
+        schedule_conf = session_config.get("schedule_settings", {})
+        if not isinstance(schedule_conf, dict):
+            return default
+        try:
+            return int(schedule_conf.get("max_unanswered_times", default) or 0)
+        except (TypeError, ValueError):
+            return default
+
+    def _is_unanswered_limit_reached(
+        self,
+        session_id: str,
+        session_config: dict | None,
+        unanswered_count: int | None = None,
+    ) -> bool:
+        """Shared guard used by runtime scheduling and Pages task snapshots."""
+        max_unanswered = self._get_max_unanswered_count(session_config)
+        if max_unanswered <= 0:
+            return False
+        if unanswered_count is None:
+            session_info = self.session_data.get(session_id)
+            if isinstance(session_info, dict):
+                try:
+                    unanswered_count = int(
+                        session_info.get("unanswered_count", 0) or 0
+                    )
+                except (TypeError, ValueError):
+                    unanswered_count = 0
+            else:
+                unanswered_count = 0
+        return unanswered_count >= max_unanswered
+
     def _clear_session_schedule_state(
         self,
         session_id: str,
@@ -708,6 +745,18 @@ class SchedulerMixin:
                 except Exception:
                     pass
 
+    def _remove_schedule_for_limit_reached(
+        self, session_id: str, session_config: dict | None = None
+    ) -> bool:
+        """达到未回复上限时清理调度器任务和持久化调度字段。"""
+        normalized_session_id = self._normalize_session_id(session_id)
+        self._purge_related_jobs(normalized_session_id)
+        changed = self._clear_session_schedule_state(normalized_session_id)
+        logger.info(
+            f"[主动消息] {self._get_session_log_str(normalized_session_id, session_config)} 已达到未回复次数上限，已清理待触发任务并暂停调度喵。"
+        )
+        return changed
+
     def _has_related_persisted_task(self, session_id: str) -> bool:
         """判断同一目标是否存在仍可恢复的持久化任务（避免重复触发）。"""
         parsed = self._parse_session_id(session_id)
@@ -937,6 +986,14 @@ class SchedulerMixin:
                     )
                 continue
 
+            if self._is_unanswered_limit_reached(session_id, session_config):
+                if self._clear_session_schedule_state(session_id):
+                    cleaned_runtime_state += 1
+                logger.info(
+                    f"[主动消息] {self._get_session_log_str(session_id, session_config)} 的未回复次数已达到上限，跳过恢复定时任务喵。"
+                )
+                continue
+
             try:
                 run_date = datetime.fromtimestamp(next_trigger, tz=self.timezone)
                 existing_job = self.scheduler.get_job(session_id)
@@ -992,11 +1049,6 @@ class SchedulerMixin:
         if not session_config:
             return
 
-        plan = await self._build_next_schedule_plan(
-            normalized_session_id,
-            session_config,
-        )
-
         async with self.data_lock:
             # 如果存在非规范化的旧键，迁移到规范化键
             if normalized_session_id != session_id and session_id in self.session_data:
@@ -1019,11 +1071,36 @@ class SchedulerMixin:
                     "unanswered_count"
                 ] = 0
 
-            # 计算随机触发时间
+            if not reset_counter and self._is_unanswered_limit_reached(
+                normalized_session_id, session_config
+            ):
+                changed = self._remove_schedule_for_limit_reached(
+                    normalized_session_id, session_config
+                )
+                if changed:
+                    await self._save_data_internal()
+                return
+
+        plan = await self._build_next_schedule_plan(
+            normalized_session_id,
+            session_config,
+        )
+
+        async with self.data_lock:
+            if not reset_counter and self._is_unanswered_limit_reached(
+                normalized_session_id, session_config
+            ):
+                changed = self._remove_schedule_for_limit_reached(
+                    normalized_session_id, session_config
+                )
+                if changed:
+                    await self._save_data_internal()
+                return
+
+            # 使用已计算好的调度计划写入 APScheduler 和持久化状态。
             run_date = plan["run_date"]
 
-            # 更新调度器与持久化数据
-            # 先清理同目标历史任务，再写入新任务，确保同一目标仅一条生效
+            # 先清理同目标历史任务，再写入新任务，确保同一目标仅一条生效。
             self._purge_related_jobs(normalized_session_id)
             self.scheduler.add_job(
                 self.check_and_chat,
